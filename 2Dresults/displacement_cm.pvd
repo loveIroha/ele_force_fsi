@@ -1,0 +1,25 @@
+<?xml version="1.0"?>
+<VTKFile type="Collection" version="0.1">
+  <Collection>
+    <DataSet timestep="0" part="0" file="displacement_cm000000.vtu" />
+    <DataSet timestep="5" part="0" file="displacement_cm000001.vtu" />
+    <DataSet timestep="10" part="0" file="displacement_cm000002.vtu" />
+    <DataSet timestep="15" part="0" file="displacement_cm000003.vtu" />
+    <DataSet timestep="20" part="0" file="displacement_cm000004.vtu" />
+    <DataSet timestep="25" part="0" file="displacement_cm000005.vtu" />
+    <DataSet timestep="30" part="0" file="displacement_cm000006.vtu" />
+    <DataSet timestep="35" part="0" file="displacement_cm000007.vtu" />
+    <DataSet timestep="40" part="0" file="displacement_cm000008.vtu" />
+    <DataSet timestep="45" part="0" file="displacement_cm000009.vtu" />
+    <DataSet timestep="50" part="0" file="displacement_cm000010.vtu" />
+    <DataSet timestep="55" part="0" file="displacement_cm000011.vtu" />
+    <DataSet timestep="60" part="0" file="displacement_cm000012.vtu" />
+    <DataSet timestep="65" part="0" file="displacement_cm000013.vtu" />
+    <DataSet timestep="70" part="0" file="displacement_cm000014.vtu" />
+    <DataSet timestep="75" part="0" file="displacement_cm000015.vtu" />
+    <DataSet timestep="80" part="0" file="displacement_cm000016.vtu" />
+    <DataSet timestep="85" part="0" file="displacement_cm000017.vtu" />
+    <DataSet timestep="90" part="0" file="displacement_cm000018.vtu" />
+    <DataSet timestep="95" part="0" file="displacement_cm000019.vtu" />
+  </Collection>
+</VTKFile>

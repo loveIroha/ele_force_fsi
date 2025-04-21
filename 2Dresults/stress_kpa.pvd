@@ -1,0 +1,25 @@
+<?xml version="1.0"?>
+<VTKFile type="Collection" version="0.1">
+  <Collection>
+    <DataSet timestep="0" part="0" file="stress_kpa000000.vtu" />
+    <DataSet timestep="5" part="0" file="stress_kpa000001.vtu" />
+    <DataSet timestep="10" part="0" file="stress_kpa000002.vtu" />
+    <DataSet timestep="15" part="0" file="stress_kpa000003.vtu" />
+    <DataSet timestep="20" part="0" file="stress_kpa000004.vtu" />
+    <DataSet timestep="25" part="0" file="stress_kpa000005.vtu" />
+    <DataSet timestep="30" part="0" file="stress_kpa000006.vtu" />
+    <DataSet timestep="35" part="0" file="stress_kpa000007.vtu" />
+    <DataSet timestep="40" part="0" file="stress_kpa000008.vtu" />
+    <DataSet timestep="45" part="0" file="stress_kpa000009.vtu" />
+    <DataSet timestep="50" part="0" file="stress_kpa000010.vtu" />
+    <DataSet timestep="55" part="0" file="stress_kpa000011.vtu" />
+    <DataSet timestep="60" part="0" file="stress_kpa000012.vtu" />
+    <DataSet timestep="65" part="0" file="stress_kpa000013.vtu" />
+    <DataSet timestep="70" part="0" file="stress_kpa000014.vtu" />
+    <DataSet timestep="75" part="0" file="stress_kpa000015.vtu" />
+    <DataSet timestep="80" part="0" file="stress_kpa000016.vtu" />
+    <DataSet timestep="85" part="0" file="stress_kpa000017.vtu" />
+    <DataSet timestep="90" part="0" file="stress_kpa000018.vtu" />
+    <DataSet timestep="95" part="0" file="stress_kpa000019.vtu" />
+  </Collection>
+</VTKFile>
