@@ -1,0 +1,33 @@
+C01 = 12100.0
+C10 = 7.99
+k1  = 242300.0
+k2  = 57.62
+
+V = VectorElement("Lagrange", tetrahedron, 1)
+
+x_start = Coefficient(V)
+f0 = Coefficient(V)
+X  = Coefficient(V)
+F  = grad(X)
+C  = F.T*F
+I1 = tr(C)
+I4 = inner(f0, C*f0)
+
+P = 2.0*C01*C10*exp(C01*(I1-3))*F + 2.0*k1*(I4-1)*exp(k2*(I4-1.0)*(I4-1.0))*F*outer(f0,f0)
+
+u = TrialFunction(V)
+v = TestFunction(V)
+
+# 编号15，16，18是瓣膜
+# 编号2，3是延长直管
+# 编号17是管壁
+F = inner(u, v)*dx
+F += inner(P, grad(v))*dx(subdomain_id=15,degree=5)
+F += inner(P, grad(v))*dx(subdomain_id=16,degree=5)
+F += inner(P, grad(v))*dx(subdomain_id=18,degree=5)
+F += 1e6*inner(X-x_start,v)*dx(subdomain_id=2)
+F += 1e6*inner(X-x_start,v)*dx(subdomain_id=3)
+F += 1e6*inner(X-x_start,v)*dx(subdomain_id=17)
+
+a = lhs(F)
+L = rhs(F)

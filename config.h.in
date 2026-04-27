@@ -1,0 +1,55 @@
+// 这是 config.h.in 文件
+
+#ifndef PROJECT_NAME_CONFIG_H__
+#define PROJECT_NAME_CONFIG_H__
+
+#define PROJECT_NAME "@PROJECT_NAME@"
+#define PROJECT_VERSION "@PROJECT_VERSION@"
+#define NPUHEART_GEOMETRY_PATH "@NPUHEART_GEOMETRY_PATH@"
+
+#define GIT_COMMIT_HASH "@GIT_COMMIT_HASH@"
+#define GIT_COMMIT_DATE "@GIT_COMMIT_DATE@"
+#define GIT_VERSION "@GIT_VERSION@"
+
+#define NPUHEART_EPS 3.0e-16
+#define NPUHEART_EPS_LARGE 1e-14
+#define NPUHEART_SQRT_EPS 1e-8
+#define NPUHEART_PI 3.141592653589793238462
+
+const int DEGREE         = @NPUHEART_FE_DEGREE@;
+const int DIM            = @NPUHEART_DIMENSION@;
+const bool USE_ADVECTION = @NPUHEART_ADVECTION@;
+
+enum { INTERIOR, DIRICHLET, NEUMANN };
+enum { LEFT, RIGHT, DOWN, UP, FRONT, BACK };
+
+const bool USE_KOKKOS = true;
+
+namespace ISUnits {
+
+const double g    = 1;                // 基本单位
+const double s    = 1;                // 时间(秒)
+const double cm   = 1;                // 长度(厘米)
+const double m    = 100 * cm;         // 基本单位(米、千克)
+const double kg   = 1000 * g;         //
+const double muA    = 1;                // 电流(muA)
+const double A  = 1e6 * muA;           // 安培
+
+const double dyn  = g * cm / s / s;   // 力(达因、牛顿)
+const double N    = kg * m / s / s;   //
+const double Pa   = N / m / m;        /// 压强(帕斯卡、毫米汞柱)
+const double kPa  = 1000 * Pa;       //
+const double mmHg = 133.3223684 * Pa; //
+const double J    = N * m;            // 能量(焦耳、卡)
+const double cal  = 4.1868 * J;       //
+const double W    = J / s;            // 功率(瓦)
+
+const double V    = 1;        //
+const double Ohm  = V / A;            // 电阻(欧姆)
+const double S  = 1.0 / Ohm;             // 电导率(西门子、毫西门子)
+const double mS  = 1e-3 * S;        //
+const double F   = (A * s) / V;    // 法拉
+const double muF = 1e-6 * F;
+} // namespace ISUnits
+
+#endif // PROJECT_NAME_CONFIG_H__

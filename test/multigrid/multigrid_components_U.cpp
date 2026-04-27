@@ -1,0 +1,114 @@
+/// @date 2023-12-22
+/// @file multigrid_components_U.cpp
+/// @author Ma Pengfei (code@pengfeima.cn)
+/// @version 0.1
+/// @copyright Copyright (c) 2023 Ma Pengfei
+
+#include <PhysicsSolver/StokesFlow3D/Kokkos/Pressure3D_kokkos.h>
+#include <PhysicsSolver/StokesFlow3D/Kokkos/VelocityU3D_kokkos.h>
+#include <PhysicsSolver/StokesFlow3D/Kokkos/VelocityV3D_kokkos.h>
+#include <PhysicsSolver/StokesFlow3D/Kokkos/VelocityW3D_kokkos.h>
+#include <PhysicsSolver/StokesFlow3D/Multigrid/MultigridP.h>
+#include <PhysicsSolver/StokesFlow3D/Multigrid/MultigridU.h>
+#include <PhysicsSolver/StokesFlow3D/Multigrid/MultigridV.h>
+#include <PhysicsSolver/StokesFlow3D/Multigrid/MultigridW.h>
+#include <PhysicsSolver/StokesFlow3D/NavierStokesDemo.h>
+#include <PhysicsSolver/StokesFlow3D/Pressure3D.h>
+#include <PhysicsSolver/StokesFlow3D/VelocityU3D.h>
+#include <PhysicsSolver/StokesFlow3D/VelocityV3D.h>
+#include <PhysicsSolver/StokesFlow3D/VelocityW3D.h>
+
+// std::array<int, 6> all_boundary_type = {NEUMANN, NEUMANN, NEUMANN, NEUMANN,
+// NEUMANN, NEUMANN};
+std::array<int, 6> all_boundary_type = {DIRICHLET, DIRICHLET, DIRICHLET, DIRICHLET, DIRICHLET, DIRICHLET};
+int                max_iters         = 20000;
+double             tolerance         = 1e-6;
+
+int main_u(int3 N, int Nt, double3 L, double T, double rho, double mu_f) {
+    double t  = 0.0;
+    double dx = L.x / N.x;
+    double dy = L.y / N.y;
+    double dz = L.z / N.z;
+    double dt = T / Nt;
+
+    auto ns_demo = create_ns_demo(N.x, N.y, N.z, Nt, L.x, L.y, L.z, T, rho, mu_f,
+                                  "/home/kokkos/npuheart/features/finite_difference/3D/stokes_demo.json");
+
+    auto xbt     = algebra::create_multi_array<3, int>({N.x + 3, N.y + 2, N.z + 2});
+    auto xn      = algebra::create_multi_array<3, double>({N.x + 3, N.y + 2, N.z + 2});
+    auto xb      = algebra::create_multi_array<3, double>({N.x + 3, N.y + 2, N.z + 2});
+    auto xbv     = algebra::create_multi_array<3, double>({N.x + 3, N.y + 2, N.z + 2});
+    auto f1      = algebra::create_multi_array<3, double>({N.x + 3, N.y + 2, N.z + 2});
+    auto exact   = algebra::create_multi_array<3, double>({N.x + 3, N.y + 2, N.z + 2});
+    auto eh      = algebra::create_multi_array<3, double>({N.x + 3, N.y + 2, N.z + 2});
+    auto xh      = algebra::create_multi_array<3, double>({N.x + 3, N.y + 2, N.z + 2});
+    auto rh      = algebra::create_multi_array<3, double>({N.x + 3, N.y + 2, N.z + 2});
+    auto x_prime = algebra::create_multi_array<3, double>({N.x + 3, N.y + 2, N.z + 2});
+    auto r_prime = algebra::create_multi_array<3, double>({N.x + 3, N.y + 2, N.z + 2});
+
+    ns_demo->get_boundary_type_u(xbt, all_boundary_type);
+    ns_demo->get_array_u(xn, t);
+
+    auto kokkos_solver
+        = mykokkos::VelocityUKokkos3D(N.x, N.y, N.z, Nt, L.x, L.y, L.z, T, mu_f, rho, tolerance, max_iters);
+    auto view_xh  = kokkos_solver.template convert<double>(xh, "xh");
+    auto view_xb  = kokkos_solver.template convert<double>(xb, "xb");
+    auto view_xbt = kokkos_solver.template convert<int>(xbt, "xbt");
+    auto view_xbv = kokkos_solver.template convert<double>(xbv, "xbv");
+
+    for (int i = 1; i <= Nt; i++) {
+        t = i * dt;
+        // 获取边界条件和右端项
+        ns_demo->get_array_f1(f1, t);
+        ns_demo->make_tentitive_ub(xb, xn, f1);
+        ns_demo->get_boundary_values_u(xbv, xbt, t);
+
+        // 求解
+        // HACK: 为什么不需要使用 mykokkos 命名空间？
+        // HACK: 好像是因为用到参数类型属于 mykokkos
+        // 命名空间，所以函数名不需要使用命名空间
+        mykokkos::solve(kokkos_solver, rh, xh, xbt, xbv, xb, N, L, mu_f, rho, dt, max_iters, tolerance);
+
+        // HACK: 考虑到Kokkos::View默认是浅拷贝
+        // 更新un
+        // xn = xh;
+        // xh = xh; initial guess for the next step
+        // std::swap(xn,xh);
+        xn = xh;
+
+        // 计算误差
+        ns_demo->get_array_u(exact, t);
+        algebra::axpy(-1.0, exact, xn, eh);
+        algebra::zero_boundary(eh);
+        double sum_eh_squared = algebra::norm(eh) * std::sqrt(dx * dy * dz);
+        if (i == Nt) printf("sum_eh_squared = %.20e\n", sum_eh_squared);
+    }
+
+    return 0;
+}
+
+void main_test(int N_, int Nt) {
+    int3    N    = {N_, N_, N_};
+    double3 L    = {1.0, 1.0, 1.0};
+    double  T    = 1.0;
+    double  rho  = 1.0;
+    double  mu_f = 1.0;
+    main_u(N, Nt, L, T, rho, mu_f);
+}
+
+int main(int argc, char* argv[]) {
+    Kokkos::initialize(argc, argv);
+    std::vector<int> Ns{4, 8, 16, 32, 64, 128, 256, 512};
+    std::vector<int> Nt{128, 256, 512, 1024, 2048};
+    for (auto& ns : Ns) {
+        std::string msg = fmt::format("Result for ns = {}:", ns);
+        std::cout << msg << std::endl;
+        for (auto& nt : Nt) {
+            std::string msg = fmt::format("           nt = {}:", nt);
+            std::cout << msg << std::endl;
+            main_test(ns, nt);
+        }
+    }
+    Kokkos::finalize();
+    return 0;
+}

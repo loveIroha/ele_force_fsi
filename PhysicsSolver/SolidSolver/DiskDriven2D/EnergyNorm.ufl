@@ -1,0 +1,22 @@
+# neo-Hookean 材料的应变能函数
+# W=\frac{1}{2} \mu(\operatorname{trace}(\mathbb{C})-m)-\mu \ln (|\mathbb{F}|)+\frac{1}{2} \lambda \ln (|\mathbb{F}|)^2
+
+element = VectorElement("Lagrange", triangle, 2)
+
+# 参数
+mu = 1.0
+lamb = 1.0
+
+# 已知变量，例如位移
+X = Coefficient(element)
+
+# 形变梯度及其相关变量
+FF = grad(X)+Identity(len(X))
+CC = FF.T*FF
+JJ = det(FF)
+
+M1 = (0.5*mu*(tr(CC)-len(X))-mu*ln(JJ)+0.5*lamb*ln(JJ)**2)*dx
+M2 = (0.5*mu*(tr(CC)-len(X))-mu*ln(JJ))*dx
+M3 = (0.5*mu*(tr(CC)-len(X)))*dx
+
+forms = [M1,M2,M3]

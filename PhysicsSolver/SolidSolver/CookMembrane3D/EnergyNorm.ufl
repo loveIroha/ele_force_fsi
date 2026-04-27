@@ -1,0 +1,55 @@
+# Constituitive parameters
+CC = 20000.0  # dyn/cm^2 (2kPa)
+bf = 8.0
+bt = 2.0
+bfs = 4.0
+
+kappa = 1e1 # Penalty for incompressibility
+beta = 1e7  # Penalty for boundary conditions
+
+# Boundary markers
+bottom   = 2
+fixed    = 1
+
+def strain_energy(X):                           # X is the position of current configuration
+
+    I = Identity(len(X))
+    F = variable(grad(X))                         # nabla_grad is used someplaces. I think grad is correct.
+    J = det(F)
+    C = pow(J, -float(2)/3) * F.T*F
+    E = 0.5*(C - I)
+
+    e1 = as_vector([ 1.0, 0.0, 0.0 ])
+    e2 = as_vector([ 0.0, 1.0, 0.0 ])
+    e3 = as_vector([ 0.0, 0.0, 1.0 ])
+
+    E11, E12, E13 = inner(E*e1, e1), inner(E*e1, e2), inner(E*e1, e3)
+    E21, E22, E23 = inner(E*e2, e1), inner(E*e2, e2), inner(E*e2, e3)
+    E31, E32, E33 = inner(E*e3, e1), inner(E*e3, e2), inner(E*e3, e3)
+
+    Q = bf*E11**2 + bt*(E22**2 + E33**2 + E23**2 + E32**2) \
+      + bfs*(E12**2 + E21**2 + E13**2 + E31**2)
+
+    # passive strain energy
+    Wpassive = CC/2.0 * (exp(Q) - 1)
+
+    # incompressibility
+    Winc = kappa * (J**2 - 1 - 2*ln(J))
+
+    return Wpassive+Winc
+
+
+
+
+element = VectorElement("Lagrange", tetrahedron, 1)
+real = FiniteElement("Real", tetrahedron, 0)
+pressure = Coefficient(real)
+
+G = TrialFunction(element)
+V = TestFunction(element)
+X = Coefficient(element)
+
+
+M1 = strain_energy(X)*dx
+
+forms = [M1]

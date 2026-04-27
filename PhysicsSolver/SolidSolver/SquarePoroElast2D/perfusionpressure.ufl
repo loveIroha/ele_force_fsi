@@ -1,0 +1,82 @@
+from fenics import *
+from ufl import *
+
+# Define elements
+element = FiniteElement("Lagrange", triangle,2)
+vector_element = VectorElement("Lagrange", triangle, 1)
+constant_element = FiniteElement("Real", triangle, 0)
+
+# Test function and trial function
+P = TrialFunction(element)
+V = TestFunction(element)
+
+# Define parameters
+# Biot modulus
+Mb = 2.18e6
+
+# Permeability tensor
+K = 1e-4*Identity(2)
+
+# Density
+rho = 1.0
+
+# Penalty coefficient
+kappa = 0.1
+
+# Parameter of the skeleton
+b = 1.0
+
+# Initial porosity
+phi0 = 0.1
+
+# Source
+S = 0.0
+
+# time step
+dt  = Coefficient(constant_element)
+
+# Deformation gradient
+X  = Coefficient(vector_element)      #位移
+F  = grad(X)+Identity(2)
+J  = det(F)
+
+X_1  = Coefficient(vector_element)    #上一时刻的位移
+F_1  = grad(X_1)+Identity(2)
+J_1  = det(F_1)
+
+# Variables from last time step
+P_1 = Coefficient(element)   #前一时刻的灌注压力
+M_1  = Coefficient(element)   #增加的质量
+M_p1 = Coefficient(element)  #前一时刻增加的质量
+
+def f(J):
+    f1 = 1.0
+    f2 = 2.0*(J-1.0-ln(J))/((J-1)**2)
+    return conditional(le(abs(J-1),1e-6),f1,f2)
+
+def grad_f(J):
+    f1 = -2.0/3.0                                          #f1 = -0.6668442020782095   
+    f2 = (2.0*(J-1)**2-4.0*J*(J-1-ln(J)))/(J*(J-1)**3)
+    return conditional(le(abs(J-1),1e-4),f1,f2)
+
+def A(J):
+    return Mb*f(J)/rho
+
+def B(M_1,J):    
+    return  -Mb*f(J)*b + Mb*grad_f(J)*(b*(1-J)+M_1/rho)
+
+def C(M_p1,M_1):
+    return (kappa*rho/(M_1+rho*phi0)-kappa*rho/(M_p1+rho*phi0))/dt
+
+def E(M_1,M_p1,J,J_1):
+    return A(J)*rho*S + B(M_1,J)*(J-J_1)/dt - C(M_1,M_p1)
+
+
+# Define the variational form
+AA = J*inv(F)*K*inv(F).T
+
+# TODO: Zero Neumann boundary condition has not been considered
+F = (inner(2*(P-P_1)/dt,V) + Mb*inner(AA*grad(P),grad(V*f(J)))-E(M_1,M_p1,J,J_1)*V)*dx
+
+a = lhs(F)
+L = rhs(F)

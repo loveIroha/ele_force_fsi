@@ -1,0 +1,4 @@
+# define finite element function space
+element = VectorElement("Lagrange", triangle, 2)
+
+# ffc -l dolfin LagrangeSecond2D.ufl

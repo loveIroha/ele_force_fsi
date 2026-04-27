@@ -1,0 +1,58 @@
+from fenics import *
+from ufl import *
+
+# Define elements
+element = FiniteElement("Lagrange", triangle, 2)
+vector_element = VectorElement("Lagrange", triangle, 1)
+constant_element = FiniteElement("Real", triangle, 0)
+
+# Test function and trial function
+P = TrialFunction(element)
+V = TestFunction(element)
+
+# Define parameters
+# Biot modulus
+Mb = 2.18e6  
+
+# Density
+rho = 1.0  
+
+# Penalty coefficient
+kappa = 0.1  
+
+# Parameter of the skeleton
+b = 1.0 
+
+# Initial porosity
+phi0 = 0.1
+
+P0 = 0
+
+# Deformation gradient
+X  = Coefficient(vector_element)      #位移
+F  = grad(X)+Identity(2)
+J  = det(F)
+
+# Variables from last time step
+P = Coefficient(element)   #前一时刻的灌注压力
+M_1  = Coefficient(element)   #增加的质量
+
+#Test function and trial function
+M1 = TrialFunction(element)
+V = TestFunction(element)
+
+def f(J):
+    f1 = 1
+    f2 = 2.0*(J-1.0-ln(J))/((J-1)**2)
+    return conditional(le(abs(J-1),1e-6),f1,f2)
+
+def h(J):
+    return b*(J-1)
+
+def g(P,M_1):
+    return P - P0 + kappa*rho/(M_1 + rho*phi0)
+
+F = M1*V*dx-rho*inner(1/(Mb*f(J))*g(P,M_1) + h(J), V)*dx
+
+a = lhs(F)
+L = rhs(F)

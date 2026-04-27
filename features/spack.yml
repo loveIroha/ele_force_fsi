@@ -1,0 +1,39 @@
+# 通过 gcc@11.4.0 能够编译成功
+# spack load py-pip
+spack:
+  specs:
+  # - cuda@12.2.1 +allow-unsupported-compilers # V12.3.52
+  - kokkos-kernels@master +cuda cuda_arch=89 %gcc@11.4.0
+  - kokkos@master +openmp +cuda +cuda_lambda +cuda_constexpr +wrapper cuda_arch=89 cxxstd=20
+  # FEniCS
+  - fenics@2019.1.0.post0 +zlib build_type=Release cflags="-O3" 
+  - petsc@3.14.0 +mumps +hdf5
+  - boost@1.71.0
+  - openmpi@4.0.6 +cuda
+  - python@3.10.10 +optimizations
+  - py-matplotlib
+  # NPUHeart
+  - muparser # 2.3.4
+  - fmt@10.1.1
+  - nlohmann-json@3.11.2
+  view: true
+  concretizer:
+    unify: true
+
+  packages:
+    all:
+      compiler: [gcc@11.4.0]
+
+
+# git clone -c feature.manyFiles=true https://github.com/spack/spack.git
+# scp -P 9999 -r npuheart9@10.70.181.65:~/spack/var/spack/cache ~/spack/var/spack/
+# scp -P 9999 -r npuheart9@10.70.181.65:~/clash ~/
+# . ~/spack/share/spack/setup-env.sh
+# spack compiler find
+# spack env create fenics_kokkos
+# spack env activate fenics_kokkos -p
+# ~/spack/var/spack/environments/fenics_kokkos/spack.yaml 
+# After change the spack.yml:
+# spack concretize -f
+# spack install
+

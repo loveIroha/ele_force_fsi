@@ -1,0 +1,21 @@
+name: simcardiac
+services:
+  cuda_120603_GCC_1104:
+    image: ghcr.io/npuheart/docker:v0.1.7-post1
+    # user: "1005:1005"
+    volumes:
+        - ./log:/var/log
+        - .:/root/simcardiac
+        - /home/fenics/mesh/cardiac/LV_1:/root/mesh
+        - /home/fenics/data/outputs-npuheart:/root/outputs-npuheart
+    ports:
+      - "2224:22"
+    command: /usr/sbin/sshd -D
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]

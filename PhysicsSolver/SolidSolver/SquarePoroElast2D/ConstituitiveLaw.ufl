@@ -1,0 +1,80 @@
+from fenics import *
+from ufl import *
+# Define elements
+element = FiniteElement("Lagrange", triangle, 1)
+vector_element = VectorElement("Lagrange", triangle,1)
+constant_element = FiniteElement("Real", triangle, 0)
+
+# Define parameters
+kappa_1 = 2e4
+kappa_2 = 330
+K_s = 2.2e6
+
+# Biot modulus
+Mb = 2.18e6
+
+# Density
+rho = 1.0
+
+# Penalty coefficient
+kappa = 0.1
+
+# Parameter of the skeleton
+b = 1.0
+
+# Initial porosity
+phi0 = 0.1
+
+N = FacetNormal(triangle)
+X = Coefficient(vector_element)
+F = grad(X)+Identity(2)
+F = variable(F)
+J = det(F)
+C = F.T*F
+E = F*F.T
+
+I1 = tr(C)
+I2 = 0.5*(tr(C)**2-tr(C*C))
+
+def f(J):
+    f1 = 1
+    f2 = 2.0*(J-1.0-ln(J))/((J-1)**2)
+    return conditional(le(abs(J-1),1e-6),f1,f2)
+
+def grad_f(J):
+    f1 = -2.0/3.0                                          #f1 = -0.6668442020782095   
+    f2 = (2.0*(J-1)**2-4.0*J*(J-1-ln(J)))/(J*(J-1)**3)
+    return conditional(le(abs(J-1),1e-4),f1,f2)
+
+M= Coefficient(element)
+
+W_hyp = kappa_1*(I1-2)+kappa_2*(I2-2)
+W_bulk = K_s*ln(J-M/rho)**2
+
+# hyper
+P = (2*kappa_1*Identity(2) + 2.0*kappa_2*tr(C)*Identity(2)-2*kappa_2*E)*(F-inv(F).T)
+
+# bulk
+P += diff(W_bulk,F) 
+
+P += Mb*b*M/rho*J*(f(J)+(J-1.0)*grad_f(J))*inv(F).T+0.5*Mb*M*M/rho/rho*grad_f(J)*J*inv(F).T
+
+#Define the variational problem
+G = TrialFunction(vector_element)
+V = TestFunction(vector_element) 
+FF = inner(P,grad(V))*dx + inner(G,V)*dx
+
+# Constraint left and bottom edge
+#FF += 1e4*inner(X,V)*ds(subdomain_id=1)
+#FF += 1e4*inner(X,V)*ds(subdomain_id=2)
+
+# 左端X方向固定，底端y方向固定
+FF += 1e6*inner(as_vector((X[0], 0)),V)*ds(subdomain_id=1)
+FF += 1e6*inner(as_vector((0, X[1])),V)*ds(subdomain_id=2)
+
+# Pressure on the surface
+##pressure = 100
+##FF += inner(pressure*det(F)*inv(F)*N,V)*ds(subdomain_id=3)
+
+a = lhs(FF)
+L = rhs(FF)

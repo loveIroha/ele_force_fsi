@@ -1,0 +1,12 @@
+element = FiniteElement("Lagrange", tetrahedron, 2)
+
+v = TestFunction(element)
+u = Coefficient(element)
+f = Coefficient(element)
+
+def q(u):
+    return 1+u*u
+
+F = q(u)*dot(grad(u), grad(v))*dx -f*v*dx
+
+

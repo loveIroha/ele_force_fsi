@@ -1,0 +1,67 @@
+name: Create Environments
+
+on:
+  push:
+    branches: [ "master" ]
+  workflow_dispatch:
+
+jobs:
+  update_npuheart:
+    name: update npuheart
+    runs-on: npuheart9   
+    steps:
+      - name: 更新 npuheart 仓库
+        run: |
+          cd ~/npuheart && git pull
+
+  create_spack_environment:
+    name: create spack environment
+    if: ${{ always() }}
+    runs-on: npuheart9 
+    steps:
+      - name: 创建 spack 虚拟环境，安装必要软件
+        run: |
+          . ~/spack/share/spack/setup-env.sh
+          spack env create fenics_kokkos_2
+
+  update_spack_environment:
+    name: update spack environment
+    if: ${{ always() }}
+    needs: [update_npuheart, create_spack_environment]
+    runs-on: npuheart9 
+    steps:
+      - name: 创建 spack 虚拟环境，安装必要软件
+        run: |
+          . ~/spack/share/spack/setup-env.sh
+          spack load gcc@11.4.0
+          spack env activate fenics_kokkos_2 -p
+          cp ~/npuheart/spack.yml ~/spack/var/spack/environments/fenics_kokkos_2/spack.yaml
+          spack concretize -f && spack install
+
+  configure_npuheart:
+    name: configure npuheart
+    needs: [update_spack_environment, update_npuheart]
+    runs-on: npuheart9 
+    steps:
+      - name: 创建 spack 虚拟环境，安装必要软件
+        run: |
+          cd ~/npuheart && source ~/.bashrc
+          mkdir -p build && cd build && cmake .. && make -j8
+
+  test_cfd:
+    name: 测试CFD求解器的收敛阶(未完成)
+    needs: [configure_npuheart]
+    runs-on: npuheart9 
+    steps:
+      - name: 创建 spack 虚拟环境，安装必要软件
+        run: |
+          ls
+
+  test_delta:
+    name: 测试delta函数卷积(未完成)
+    needs: [configure_npuheart]
+    runs-on: npuheart9 
+    steps:
+      - name: 创建 spack 虚拟环境，安装必要软件
+        run: |
+          ls

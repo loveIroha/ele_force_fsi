@@ -1,0 +1,34 @@
+element = VectorElement("Lagrange", tetrahedron, 1)
+real = FiniteElement("Real", tetrahedron, 0)
+
+
+U = TrialFunction(element)
+V = TestFunction(element)
+
+# 参数
+mu = Coefficient(real)
+lamb = Coefficient(real)
+
+# 已知变量，例如位移
+X = Coefficient(element)
+
+# 形变梯度及其相关变量
+FF = grad(X)+Identity(len(X))
+CC = FF.T*FF
+JJ = det(FF)
+
+# 完整的本构模型可以参考 *On the hyper-elastic formulation of the immersed boundary method*
+# 第一PK应力张量
+PP = mu*(FF-inv(FF).T)
+# PP = mu*FF
+
+# 增加不可压条件 
+PP += lamb*JJ*ln(JJ)*inv(FF).T
+
+# 弱形式
+F = inner(PP, grad(V))*dx + inner(U, V)*dx
+
+
+# 双线性型及右端项
+a = lhs(F)
+L = rhs(F)

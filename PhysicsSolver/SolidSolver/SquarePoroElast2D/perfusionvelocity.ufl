@@ -1,0 +1,29 @@
+from fenics import *
+from ufl import *
+
+# Define elements
+element = FiniteElement("Lagrange", triangle, 2)
+vector_element = VectorElement("Lagrange", triangle, 1)
+constant_element = FiniteElement("Real", triangle, 0)
+
+# Test function and trial function
+W = TrialFunction(vector_element)
+V = TestFunction(vector_element)
+
+# Define parameters
+# Permeability tensor
+K = 1e-4*Identity(2)
+
+# Deformation gradient
+X  = Coefficient(vector_element)      #位移
+F  = grad(X)+Identity(2)
+J  = det(F)
+P  = Coefficient(element)               
+
+# Define the variational form
+AA = J*inv(F)*K*inv(F).T
+
+F = inner(W, V)*dx + inner(AA*grad(P),V)*dx
+
+a = lhs(F)
+L = rhs(F)

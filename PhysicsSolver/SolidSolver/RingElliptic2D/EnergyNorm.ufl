@@ -1,0 +1,22 @@
+from ufl import *
+
+mu = 1.0
+gamma = 0
+omega = 0.0625
+R = 0.25
+
+cell = triangle
+element = VectorElement("Lagrange", cell, 1)
+real = FiniteElement("Real", cell, 0)
+
+U = TrialFunction(element)
+V = TestFunction(element)
+X = Coefficient(element)
+X0 = SpatialCoordinate(cell)
+
+s2 = sqrt((X[1]+X0[1]-0.5)*(X[1]+X0[1]-0.5) +
+          (X[0]+X0[0]-0.5)*(X[0]+X0[0]-0.5))-R
+
+M3 = mu/2.0/omega*(R+s2)*(R+s2)/R/R*dx
+
+forms = [M3]

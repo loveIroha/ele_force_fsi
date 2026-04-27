@@ -1,0 +1,39 @@
+# PhysicsSolver/ElectrophysiologySolver/Monodomain.ufl
+
+# 电生理参数
+Cm  = 0.1       # muF/cm^2
+S_v = 0.1       # 1/cm
+G_f = 1.17e-3   # mS/cm
+G_s = 3.90e-4
+G_n = 3.90e-4
+
+# 有限元空间
+S = FiniteElement("Lagrange", tetrahedron, 1)
+V = VectorElement("Lagrange", tetrahedron, 1)
+R = FiniteElement("Real", tetrahedron, 0)
+
+# 函数
+p = TestFunction(S)
+q = TrialFunction(S)
+Vm = Coefficient(S)
+Vm_old = Coefficient(S)
+I_ion = Coefficient(S)
+I_stim = Coefficient(S)
+f0 = Coefficient(V)  # 纤维方向
+s0 = Coefficient(V)  # 薄层方向
+dt = Coefficient(R)
+
+n0 = cross(f0, s0)
+D = G_f * outer(f0, f0) + G_s * outer(s0, s0) + G_n * outer(n0, n0)
+
+# 单域方程变分形式
+a_ep = (S_v * Cm / dt) * inner(q, p) * dx + inner(D * grad(q), grad(p)) * dx
+
+L_ep = (S_v * Cm/dt) * inner(Vm_old, p) * dx \
+       - S_v * inner(I_ion, p) * dx \
+       + S_v * inner(I_stim, p) * dx
+
+F_ep = a_ep - L_ep
+J_ep = derivative(F_ep, Vm, q)
+
+forms = [a_ep, L_ep]

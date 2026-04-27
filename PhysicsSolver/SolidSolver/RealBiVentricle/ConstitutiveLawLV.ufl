@@ -1,0 +1,81 @@
+a = 2400
+b = 5.08
+a_f = 14600
+b_f = 4.15
+a_s = 8700
+b_s = 1.6
+a_fs = 3000
+b_fs = 1.3
+
+marker_base = 1
+marker_outer = 2
+marker_left = 3
+marker_right = 4
+
+def first_PK_stress(X):                           # X is the position of current configuration
+
+    # The deformation gradient
+    I = Identity(len(X))
+    F = variable(grad(X)+I)                         # nabla_grad is used someplaces. I think grad is correct.
+    J = det(F)
+    C = F.T*F
+#    C = pow(J, -float(2)/3) * F.T*F
+    I1 = tr(C)
+    I3 = det(C)
+    I_4f = max_value(inner(f0, C*f0), 1.0)
+    I_4s = max_value(inner(s0, C*s0), 1.0)
+    I_8fs = inner(f0, C*s0)
+    W = a/2.0/b*exp(b*(I1-3))
+    W += a_f/2.0/b_f*(exp(b_f*(I_4f-1.0)*(I_4f-1.0))-1.0)
+    W += a_s/2.0/b_s*(exp(b_s*(I_4s-1.0)*(I_4s-1.0))-1.0)
+    W += a_fs/2.0/b_fs*(exp(b_fs*I_8fs*I_8fs)-1.0)
+    P = diff(W, F)
+    # incompressibility 
+    P -= a*exp(b*(I1-3))*inv(F).T
+    P += kappa*ln(I3)*inv(F).T
+    return P
+
+element = VectorElement("Lagrange", tetrahedron, 1)
+real = FiniteElement("Real", tetrahedron, 0)
+pressure_left = Coefficient(real)
+pressure_right = Coefficient(real)
+kappa = Coefficient(real) # 1e6 # Penalty for incompressibility
+beta  = Coefficient(real) # 5e7  # Penalty for boundary conditions
+
+f0 = Coefficient(element)
+s0 = Coefficient(element)
+
+
+U = TrialFunction(element)
+V = TestFunction(element)
+X = Coefficient(element)
+
+# Out normal at reference configuration.
+N = FacetNormal(tetrahedron)
+
+# The deformation gradient
+FF = grad(X) + Identity(len(X))
+
+# The first Piola-Kirchhoff stress
+PP = first_PK_stress(X)
+H = inner(PP, grad(V))*dx(degree=5) + inner(U, V)*dx
+
+# Pressure
+H += pressure_left * inner(det(FF)*inv(FF)*N,V)*ds(subdomain_id=marker_left)
+H += pressure_right * inner(det(FF)*inv(FF)*N,V)*ds(subdomain_id=marker_right)
+
+# 限制开口处只能径向移动
+# boundary condition at the base
+X_0_center = 7.0
+Y_0_center = 7.0
+X0 = SpatialCoordinate(tetrahedron)
+R = (X0[0]        - X_0_center, X0[1]        - Y_0_center, 0)
+r = (X0[0] + X[0] - X_0_center, X0[1] + X[1] - Y_0_center, 0)
+direction_length = (R[0]*r[0] + R[1]*r[1])/(R[0]*R[0]+R[1]*R[1])
+x_constraint = direction_length*R[0]-r[0]
+y_constraint = direction_length*R[1]-r[1]
+z_constraint =  - X[2]
+H -= beta*inner(as_vector((x_constraint, y_constraint, z_constraint)),V)*ds(subdomain_id=marker_base,degree=5)
+
+a = lhs(H)
+L = rhs(H)

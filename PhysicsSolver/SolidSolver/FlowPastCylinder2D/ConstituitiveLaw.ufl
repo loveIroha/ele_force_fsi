@@ -1,0 +1,31 @@
+element = VectorElement("Lagrange", triangle, 1)
+real = FiniteElement("Real", triangle, 0)
+
+# 区域标记
+cylinder = 1
+
+
+U = TrialFunction(element)
+V = TestFunction(element)
+
+# 参数
+mu = Coefficient(real)
+
+# 已知变量，例如位移
+X = Coefficient(element)
+# 形变梯度，应变张量等
+FF = grad(X)+Identity(len(X))
+
+# 弱形式, 分别是位移的惩罚项和速度的惩罚项
+F = inner(U, V)*dx
+
+# 第一PK应力张量(给圆柱加一点neo-Hookean本构)
+PP_dev = mu*(FF-inv(FF).T)
+
+# 圆柱的本构关系
+F += inner(PP_dev, grad(V))*dx(cylinder)
+
+ 
+# 双线性型及右端项
+a = lhs(F)
+L = rhs(F)

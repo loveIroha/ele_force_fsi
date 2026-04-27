@@ -1,0 +1,45 @@
+name: Install Compilers
+
+on:
+  # push:
+  #   branches:
+  #     - master
+  workflow_dispatch:
+  # schedule:
+  #   - cron: "0 2 * * THU"
+
+jobs:
+  update_spack:
+    name: update spack
+    runs-on: npuheart9
+    steps:
+      - name: 更新 spack
+        run: |
+          cd ~/spack && git pull
+  install_gcc_1140:
+    name: Install gcc 11.4.0
+    needs: update_spack
+    runs-on: npuheart9
+    steps:
+      - name: 安装 GCC 11.4.0
+        run: |
+          cd ~ && . ./spack/share/spack/setup-env.sh
+          spack install gcc@11.4.0
+          spack load gcc@11.4.0
+          spack compiler find
+          spack compilers
+          gcc -v
+  install_gcc_1320:
+    name: Install gcc 13.2.0
+    needs: update_spack
+    runs-on: npuheart9
+    steps:
+      - name: 安装 GCC 13.2.0
+        run: |
+          cd ~ && . ./spack/share/spack/setup-env.sh
+          spack install gcc@13.2.0
+          spack load gcc@13.2.0
+          spack compiler find
+          spack compilers
+          gcc -v
+

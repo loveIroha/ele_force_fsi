@@ -1,0 +1,85 @@
+# 高老师论文中使用的参数
+#a = 2362.0
+#b = 10.81
+#a_f = 200370.0
+#b_f = 14.154
+#a_s = 37245.0
+#b_s = 5.1645
+#a_fs = 4108.0
+#b_fs = 11.3
+
+# 王永恒硕士毕业论文中使用的参数
+a = 2400
+b = 5.08
+a_f = 14600
+b_f = 4.15
+a_s = 8700
+b_s = 1.6
+a_fs = 3000
+b_fs = 1.3
+beta_s = 5e6 
+
+# Define the out normal at reference configuration.
+N = FacetNormal(tetrahedron)
+
+V = VectorElement("Lagrange", tetrahedron, 1)
+S = FiniteElement("Lagrange", tetrahedron, 1)
+R = FiniteElement("Real", tetrahedron, 0)
+
+f0 = Coefficient(V)
+s0 = Coefficient(V)
+X  = Coefficient(V)
+x_start  = Coefficient(V)
+
+F = variable(grad(X)) 
+C = F.T*F
+J = det(F)
+I1 = tr(C)
+I3 = det(C)
+
+I_4f = max_value(inner(f0, C*f0), 1.0)
+I_4s = max_value(inner(s0, C*s0), 1.0)
+I_8fs = inner(f0, C*s0)
+
+W = a/2.0/b*exp(b*(I1-3))
+W += a_f/2.0/b_f*(exp(b_f*(I_4f-1.0)*(I_4f-1.0))-1.0)
+W += a_s/2.0/b_s*(exp(b_s*(I_4s-1.0)*(I_4s-1.0))-1.0)
+W += a_fs/2.0/b_fs*(exp(b_fs*I_8fs*I_8fs)-1.0)
+
+P = diff(W, F)
+
+# incompressibility 
+P -= a*exp(b*(I1-3))*inv(F).T
+
+# incompressibility
+# P += beta_s*ln(I3)*inv(F).T
+
+
+u = TrialFunction(V)
+v = TestFunction(V)
+H = inner(P, grad(v))*dx(degree=5) + inner(u, v)*dx
+
+# surface pressure
+pressure = Coefficient(R)
+H += inner(pressure*det(F)*inv(F)*N,v)*ds(subdomain_id=2,degree=5)
+
+# Active Traction
+T_scale = 3.0
+T  = Coefficient(R)
+H += J*T_scale*T*inner(outer(f0,f0), grad(v))*dx(degree=5)
+
+# boundary condition at the base
+R = (x_start[0] - 7.30042735, x_start[1] - 7.6448494, 0)
+r = (X[0]       - 7.30042735,       X[1] - 7.6448494, 0)
+direction_length = (R[0]*r[0] + R[1]*r[1])/(R[0]*R[0]+R[1]*R[1])
+x_constraint = direction_length*R[0]-r[0]
+y_constraint = direction_length*R[1]-r[1]
+z_constraint = (x_start[2] - X[2])
+
+H -= 1e6*inner(as_vector((x_constraint, y_constraint, z_constraint)),v)*ds(subdomain_id=3,degree=5)
+
+
+
+
+a = lhs(H)
+L = rhs(H)

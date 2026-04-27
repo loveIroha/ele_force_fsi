@@ -1,0 +1,43 @@
+name: Install Spack
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: build
+    runs-on: npuheart9
+    steps:
+      - name: 克隆 Spack 仓库
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/checkout@v4
+        with:
+          path: ./spack_2
+          repository: spack/spack
+      - name: 移动 Spack 到 Home 目录
+        run: |
+          mv ./spack_2 ~/spack_2
+      - name: 从二楼的机器拷贝Spack需要的安装包源码
+        run: |
+          scp -P 9999 -r npuheart9@10.70.181.65:~/spack/var/spack/cache ~/spack_2/var/spack/
+      - name: 激活 Spack 环境
+        run: |
+          . ~/spack_2/share/spack/setup-env.sh
+          which spack
+      - name: 激活 Spack 虚拟环境
+        run: |
+          cd ~/spack_2
+
+# scp -P 9999 -r npuheart9@10.70.181.65:~/spack/var/spack/cache ~/spack/var/spack/
+# scp -P 88 -r ibamr@10.70.181.65:~/spack/var/spack/cache ~/spack/var/spack/
+# scp -P 22 -r fenics@10.69.46.201:~/spack/var/spack/cache ~/spack/var/spack/
+#
+# scp -P 9999 -r npuheart9@10.70.181.65:~/clash ~/
+# . ~/spack/share/spack/setup-env.sh
+# spack compiler find
+# spack env create fenics_kokkos
+# spack env activate fenics_kokkos -p
+# ~/spack/var/spack/environments/fenics_kokkos/spack.yaml 
+# After change the spack.yml:
+# spack concretize -f
+# spack install

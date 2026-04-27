@@ -1,0 +1,162 @@
+## 2023-03-06 20:48:06
+
+1. 回忆了一下怎么使用我的程序。
+mkdir build && cd build && cmake ..
+make -j32
+
+## 2023-03-06 22:37:24
+
+1. 成功测试发送邮件功能
+
+## 2023-03-07 00:12:17
+
+1. 成功测试计时功能
+
+## 2023-03-07 10:53:07
+
+- 测试插值算子和延拓算子.
+
+程序为 `test/test_ibm_elerian_larangian_interaction.cpp` , 测试通过。
+考虑到计算效率, 目前固体只使用一阶有限元方法求解。
+
+## 2023-03-07 16:00:50
+
+- 显式浸没边界法, 程序为 `test_ibm_disk_driven_explicit.cpp` 
+
+使用 ImersedBoundaryMethod 类
+set_dolfin_solver
+
+## 2023-03-07 18:02:31
+
+test_ibm_disk_driven_explicit.cpp 能够运行了, 但是流体的边界条件还不知道怎么设置。
+
+可能需要在CPU中设置, 然后传输到GPU中。
+
+## 2023-03-08 10:09:21
+
+
+
+对于直杆弯曲问题, 固定边界有两种方式：
+1. 通过Dirichlet条件限制
+2. 通过惩罚项约束
+
+先实现第一种方法的显式时间离散。
+
+现在, test_ibm_bended_bar_explicit_constraint.cpp 能够运行了。
+
+## 2023-03-08 10:28:36
+
+现在体积力的计算没问题了。
+
+代码位置: 06b5d561eee0c173c3b65442c6d4ef7cfa3d29c3
+边界标记: https://github.com/shaoyaoqian/shaoyaoqian.github.io/releases/download/## 20230221/boundaries## 20230308112542.vtu
+体积力: https://github.com/shaoyaoqian/shaoyaoqian.github.io/releases/download/## 20230221/forces## 20230308112803.vtu
+
+体积力的图片：
+![image-## 20230308110958262](https://githubimages.pengfeima.cn/images/## 202303081109425.png)
+![image-## 20230308111008591](https://githubimages.pengfeima.cn/images/## 202303081110614.png)
+![image-## 20230308111015098](https://githubimages.pengfeima.cn/images/## 202303081110118.png)
+
+## 2023-03-08 14:58:31
+
+弯曲直杆问题的显式计算程序 `test_ibm_bended_bar_explicit_constraint.cpp` 。
+
+1. 测试限制条件。
+
+固体类需要有一个函数, 修改传入的位移或者速度。
+GenericSolidSolver 对象几乎是一个无状态的对象, 它不存储当前位置或者初始位置。
+真正的数据都存储在 `solid_mesh` 对象中, 名为`_solid_positions ` , 可以间接通过ImmersedBoundaryMethod获取。
+
+
+## 2023-03-08 21:12:57
+
+## 程序框架的改进
+固体求解器不存储以下变量：
+1. 固体的当前位置
+2. 固体的体积力
+固体求解器根据传入的固体的当前位置计算出固体的体积力。但是会存储一些与模型相关的数据，例如：
+1. 边界条件存储在boundaries变量中
+2. 当前时刻和时间步长
+3. 其他与模型相关的变量，例如本构参数，电势等等。
+
+ImmersedBoundaryMethod 中更新 solid solver 位置的函数也不再有用，因此一并删去。
+
+ImmersedBoundaryMethod 增加了限制固体位移的函数。
+
+## 2023-03-08 21:30:07
+## 写论文的引言
+
+## 2023-03-09 10:00:34
+
+## 完成了引言的参考文献
+
+## 2023-03-09 11:07:06
+
+
+## 测试程序`test_ibm_bended_bar_explicit_constraint.cpp` 的运行结果
+
+参数：
+1. 固体网格的坐标
+(0.45, 0.45, 0.1)
+(0.55, 0.55, 0.9)
+2. 网格剖分
+{4, 4, 32};
+3. 流体粘性、密度、时间步长：
+double nu = 0.01;
+double rho = 1.0;
+double dt = 0.0001;
+4. 背景网格
+int3 dim_bg = {65, 65, 65};
+double3 dh_bg = {0.0, 0.0, 0.0};
+double3 box_size_bg = {1.0, 1.0, 1.0};
+
+
+不稳定，可以看到`t=0.298`时刻的运行结果：
+![弯曲直杆问题的运行结果](https://githubimages.pengfeima.cn/images/## 202303091108961.png)
+
+计算结果:https://github.com/shaoyaoqian/shaoyaoqian.github.io/releases/download/## 20230221/bended_bar_0## 20230309111559.vtu
+
+
+## 2023-03-09 11:39:40
+
+应变能函数中加入不可压项
+kappa = 100000.0
+J = det(F)
+kappa * (J**2 - 1 - 2*ln(J))
+
+## 2023-03-09 17:05:14
+
+加入了不可压项，时间步长仍为$0.0001$，仍旧不稳定，这在预料之中。
+
+### 代码位置
+451c31458906e2d2c158fc404c4824418cb3067e
+### 结果
+![t=0.0298](https://githubimages.pengfeima.cn/images/## 202303091708783.png)
+
+
+### 问题
+1. 边界条件没有施加
+2. 或者是不可压边界条件无效
+
+## 2023-03-09 20:11:49
+
+### 问题
+
+#### 不可压条件
+固体的不可压条件可以通过两种方法施加，第一种是拉格朗日乘子法，另一种是通过惩罚项强制$\text{det}(\mathbb{F})=1$满足。
+一般来说，只要选取一种即可。
+浸没边界法中，不可压条件自然存在。整个计算区域的速度场满足无散度条件，相当于使用了拉格朗日乘子法。
+但是速度经过插值算子传递到固体区域后，无散度边界条件可能不精确满足，因此需要对固体额外施加不可压条件。
+
+#### 固体位移的Dirichlet边界条件
+有两种方法。第一种是每个时间步后将固体强制拉回原位，第二种是惩罚项。目前发现第一种方法不行。
+张心欣是用的第一种方法，可能是因为它使用的固体本构简单吧。
+IBAMR一直使用的是第二种方法。
+
+###
+
+
+
+
+
+

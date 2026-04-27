@@ -1,0 +1,15 @@
+name: Compile
+
+on:
+  workflow_dispatch:
+
+jobs:
+  update_spack:
+    name: update spack
+    runs-on: npuheart9
+    steps:
+      - name: 更新 spack
+        run: |
+          cd ~/npuheart && git pull
+          mkdir -p mkdir -p build_gh_actions && cd build_gh_actions
+          cmake .. && make -j8

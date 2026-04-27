@@ -1,0 +1,15 @@
+
+
+# ffc -l dolfin nonlinear_solver.ufl
+
+V = FiniteElement("Lagrange", tetrahedron, 1)
+
+u_ = TrialFunction(V)
+v = TestFunction(V)
+
+u = Coefficient(V)
+f = Coefficient(V)
+
+# Nonlinear problem and its Jacobian
+F = (1.0+u*u)*inner(grad(u), grad(v))*dx - f*v*dx
+J = derivative(F, u, u_)

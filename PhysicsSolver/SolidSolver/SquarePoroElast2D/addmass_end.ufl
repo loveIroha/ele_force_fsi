@@ -1,0 +1,27 @@
+from fenics import *
+from ufl import *
+
+# Define elements
+element = FiniteElement("Lagrange", triangle, 2)
+vector_element = VectorElement("Lagrange", triangle, 1)
+constant_element = FiniteElement("Real", triangle, 0)
+
+# Test function and trial function
+M2 = TrialFunction(element)
+V = TestFunction(element)
+
+# Define parameters
+# Density
+rho = 1.0
+
+# Source
+S = 0.0
+
+# time step
+dt =  Coefficient(element)
+W = Coefficient(vector_element)
+M_1  = Coefficient(element)   
+
+F = (2*(M2-M_1)/dt*V - rho*S*V + rho*div(W)*V)*dx
+a = lhs(F)
+L = rhs(F)

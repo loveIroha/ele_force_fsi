@@ -1,0 +1,100 @@
+# 2014年 高昊
+# a = 2362.0
+# b = 10.81
+# a_f = 200370.0
+# b_f = 14.154
+# a_s = 37245.0
+# b_s = 5.1645
+# a_fs = 4108.0
+# b_fs = 11.3
+
+# 2023年 多孔弹性体
+a = 2244.87
+b = 1.6215
+a_f = 24267.0
+b_f = 1.8268
+a_s = 5562.38
+b_s = 0.7746
+a_fs = 3905.16
+b_fs = 1.695
+
+
+
+marker_base = 4098
+marker_epi = 4096
+marker_endo = 4097
+
+def first_PK_stress(X):                           # X is the position of current configuration
+    # The deformation gradient
+    I = Identity(len(X))
+    F = variable(grad(X)+I)                         # nabla_grad is used someplaces. I think grad is correct.
+    C = F.T*F
+    J = det(F)
+    I1 = tr(C)
+    I2 = 0.5*(tr(C)*tr(C)-tr(C*C))
+    I3 = det(C)
+    I1 = I1*pow(I3,-1.0/3.0)
+
+    I_4f = max_value(inner(f0, C*f0), 1.0)
+    I_4s = max_value(inner(s0, C*s0), 1.0)
+    I_8fs = inner(f0, C*s0)
+
+    W = a/2.0/b*exp(b*(I1-3))
+    W += a_f/2.0/b_f*(exp(b_f*(I_4f-1.0)*(I_4f-1.0))-1.0)
+    W += a_s/2.0/b_s*(exp(b_s*(I_4s-1.0)*(I_4s-1.0))-1.0)
+    W += a_fs/2.0/b_fs*(exp(b_fs*I_8fs*I_8fs)-1.0)
+
+    P = diff(W, F)
+    # Eliminate PN on the boundary (only IB method need it)
+    # P -= a*exp(b*(I1-3))*inv(F).T
+
+    # incompressibility
+    P += kappa*ln(I3)*inv(F).T
+
+    # 收缩力
+    I_4f = inner(f0, C*f0)
+    P += tension*(  1+4.9*(sqrt(I_4f)-1.0)  )*F*outer(f0,f0)
+    return P
+
+element = VectorElement("Lagrange", tetrahedron, 1)
+real = FiniteElement("Real", tetrahedron, 0)
+pressure = Coefficient(real)
+tension  = Coefficient(real)
+kappa = Coefficient(real) 
+beta  = Coefficient(real)
+
+f0 = Coefficient(element)
+s0 = Coefficient(element)
+
+
+U = TrialFunction(element)
+V = TestFunction(element)
+X = Coefficient(element)
+
+# Out normal at reference configuration.
+N = FacetNormal(tetrahedron)
+
+# The deformation gradient
+FF = grad(X) + Identity(len(X))
+
+# The first Piola-Kirchhoff stress
+PP = first_PK_stress(X)
+H = inner(PP, grad(V))*dx(degree=5) + inner(U, V)*dx
+
+# Pressure
+H += pressure * inner(cofac(FF)*N,V)*ds(subdomain_id=marker_endo)
+
+# 限制开口处只能径向移动
+# boundary condition at the base
+X0 = SpatialCoordinate(tetrahedron)
+R = (X0[0]        - 7.5, X0[1]        - 7.5, 0)
+r = (X0[0] + X[0] - 7.5, X0[1] + X[1] - 7.5, 0)
+direction_length = (R[0]*r[0] + R[1]*r[1])/(R[0]*R[0]+R[1]*R[1])
+
+x_constraint = direction_length*R[0]-r[0]
+y_constraint = direction_length*R[1]-r[1]
+z_constraint =  - X[2]
+H -= beta*inner(as_vector((x_constraint, y_constraint, z_constraint)),V)*ds(subdomain_id=marker_base,degree=5)
+
+a = lhs(H)
+L = rhs(H)

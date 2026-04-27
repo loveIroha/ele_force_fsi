@@ -1,0 +1,87 @@
+
+# https://fenics.readthedocs.io/en/latest/installation.html
+
+
+
+name: Install FEniCS
+
+on:
+  # push:
+  #   branches: [ "master" ]
+  # pull_request:
+  #   branches: [ "master" ]
+  workflow_dispatch:
+
+jobs:
+  update_spack:
+    name: update spack
+    runs-on: ubuntu-20.04
+    steps:
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get -y upgrade
+          sudo apt-get install git-lfs cmake doxygen graphviz
+          sudo apt-get install libboost-chrono-dev libboost-dev libboost-filesystem-dev libboost-iostreams-dev libboost-math-dev libboost-mpi-dev libboost-program-options-dev libboost-serialization-dev libboost-thread-dev libboost-timer-dev
+          sudo apt-get install gfortran libeigen3-dev libhdf5-mpi-dev libsuitesparse-dev libscotch-dev libxml2-dev mpi-default-dev python3-mpi4py
+          sudo apt-get install petsc-dev slepc-dev python3-petsc4py python3-slepc4py python3-petsc4py-real python3-slepc4py-real
+      - name: Install/update python dependencies
+        run: |
+          sudo apt-get install python3-pip python3-pybind11 python3-flake8 python3-sphinx python3-sphinx-rtd-theme
+          sudo apt-get install python3-pytest python3-pytest-xdist python3-decorator python3-matplotlib python3-scipy
+      - name: Install FEniCS dependencies
+        run: |
+          DEP_BRANCH_NAME="master"
+          UFL_DEP_BRANCH_NAME="2022.1.0.post0" # ufl_legacy is UFL 2022
+          pip3 install --user git+https://github.com/FEniCS/fiat.git@"${DEP_BRANCH_NAME}"
+          pip3 install --user git+https://github.com/FEniCS/ufl.git@"${UFL_DEP_BRANCH_NAME}"
+          pip3 install --user git+https://bitbucket.org/fenics-project/dijitso.git@"${DEP_BRANCH_NAME}"
+          pip3 install --user git+https://bitbucket.org/fenics-project/ffc.git@"${DEP_BRANCH_NAME}"
+          ls ~/.local/bin/
+          ~/.local/bin/ffc --version
+      - name: Clone DOLFIN && Configure DOLFIN (C++)
+        run: |
+          git lfs clone https://bitbucket.org/fenics-project/dolfin.git .
+          ls
+          pwd
+          mkdir -p build && cd build && cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo -DDOLFIN_ENABLE_TRILINOS=OFF ../ 
+      - name: Compile DOLFIN (C++) && Install DOLFIN (C++)
+        run: |
+          pwd
+          cd build && make -j4 && sudo make -j4 install
+      - name: Build and run C++ unit tests (serial)
+        run: cd build && make -j4 unittests && ctest -R unittests
+      - name: Build and run C++ regressions tests (serial)
+        run: cd build && make -j4 demos && ctest -j4 -R demo -R serial
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fenics_build
+          path: build
+      - name: Run C++ regression tests (MPI)
+        run: cd build && make -j4 demos && ctest -R demo -R mpi -E demo_contact-vi-snes_mpi
+      - name: Build Python interface
+        run: |
+          cd python
+          pip3 -v install . --user
+      - name: 测试 FEniCS
+        run: |
+          python3 -c"import ffc; print(ffc.__version__)"
+      - name: Run Python unit tests (serial)
+        run: python3 -m pytest -n 4 python/test/unit/
+      - name: Run Python unit tests (MPI)
+        run: mpirun -n 3 python3 -m pytest python/test/unit/
+      - name: Generate Python demo (regression) programs
+        run: python3 python/demo/generate-demo-files.py
+      - name: Run Python regression tests (serial)
+        run: python3 -m pytest -v -n 4 python/demo/test.py
+      - name: Run Python regression tests (MPI)
+        run: python3 -m pytest -v python/demo/test.py --mpiexec=mpiexec --num-proc=3 -k "not contact-vi-snes"
+      - name: Install mshr
+        run: |
+          git clone https://bitbucket.org/fenics-project/mshr.git
+          mkdir mshr/build && cd mshr/build && cmake .. && sudo make install && cd ../..
+          cd mshr/python   && pip3 install . && cd ../..
+
+
+
+

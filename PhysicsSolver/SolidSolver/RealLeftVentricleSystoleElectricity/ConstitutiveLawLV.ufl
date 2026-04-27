@@ -1,0 +1,145 @@
+# 2014年 高昊
+# a = 2362.0
+# b = 10.81
+# a_f = 200370.0
+# b_f = 14.154
+# a_s = 37245.0
+# b_s = 5.1645
+# a_fs = 4108.0
+# b_fs = 11.3
+
+# 2023年 多孔弹性体
+# a = 2244.87
+# b = 1.6215
+# a_f = 24267.0
+# b_f = 1.8268
+# a_s = 5562.38
+# b_s = 0.7746
+# a_fs = 3905.16
+# b_fs = 1.695
+
+
+# 王永恒 硕士毕业论文
+a = 2400
+b = 5.08
+a_f = 14600
+b_f = 4.15
+a_s = 8700
+b_s = 1.6
+a_fs = 3000
+b_fs = 1.3
+
+T_scale = 3.0
+
+Tref_land  = 8.4e5    # dyn/cm²（= 84 kPa）
+rs_land    = 0.25     # 强结合横桥平衡比例
+Beta0_land = 2.3      # Frank-Starling 长度依赖系数
+As_land    = 10.0     # Zetas 驱动增益（= Aw_land）
+cs_land    = 40.14    # Zetas 弛豫率（s⁻¹）
+cw_land    = 405.86   # Zetaw 弛豫率（s⁻¹）
+
+element = VectorElement("Lagrange", tetrahedron, 1)
+S = FiniteElement("Lagrange", tetrahedron, 1)
+real = FiniteElement("Real", tetrahedron, 0)
+
+def first_PK_stress(X):                           # X is the position of current configuration
+    # The deformation gradient
+    I = Identity(len(X))
+    F = variable(grad(X)+I)                         # nabla_grad is used someplaces. I think grad is correct.
+    C = F.T*F
+    J = det(F)
+    I1 = tr(C)
+    I2 = 0.5*(tr(C)*tr(C)-tr(C*C))
+    I3 = det(C)
+    I1 = I1*pow(I3,-1.0/3.0)
+
+    I_4f = max_value(inner(f0, C*f0), 1.0)
+    I_4s = max_value(inner(s0, C*s0), 1.0)
+    I_8fs = inner(f0, C*s0)
+
+    W = a/2.0/b*exp(b*(I1-3))
+    W += a_f/2.0/b_f*(exp(b_f*(I_4f-1.0)*(I_4f-1.0))-1.0)
+    W += a_s/2.0/b_s*(exp(b_s*(I_4s-1.0)*(I_4s-1.0))-1.0)
+    W += a_fs/2.0/b_fs*(exp(b_fs*I_8fs*I_8fs)-1.0)
+
+    f_fiber = F*f0                                    # 变形后纤维向量
+    lmbda   = sqrt(max_value(inner(f_fiber, f_fiber), 1e-16))  # 纤维伸长率
+    lmbda_c  = min_value(lmbda, 1.2)
+    h_prima  = 1.0 + Beta0_land * (lmbda_c + min_value(lmbda_c, 0.87) - 1.87)
+    h_lambda = max_value(0.0, h_prima)
+
+    exp_cs = exp(-cs_land * dt_mech)
+    exp_cw = exp(-cw_land * dt_mech)
+
+    Zetas = Zetas_prev * exp_cs + (As_land/cs_land) * ((lmbda - lmbda_prev) / dt_mech) * (1.0 - exp_cs)
+    Zetaw = Zetaw_prev * exp_cw + (As_land/cw_land) * ((lmbda - lmbda_prev) / dt_mech) * (1.0 - exp_cw)
+
+    P = diff(W, F)
+    # Eliminate PN on the boundary (only IB method need it)
+    # P -= a*exp(b*(I1-3))*inv(F).T
+
+    # incompressibility
+    # P += kappa*ln(I3)*inv(F).T
+
+    # 收缩力
+    P += h_lambda * (Tref_land / rs_land) * (XS * (Zetas + 1.0) + XW * Zetaw)*outer(f0,f0)
+    return P
+
+pressure = Coefficient(real)
+tension  = Coefficient(real)
+kappa = Coefficient(real) 
+beta  = Coefficient(real)
+
+f0 = Coefficient(element)
+s0 = Coefficient(element)
+
+XS         = Coefficient(S)    # 强结合横桥比例（来自 Land ODE）
+XW         = Coefficient(S)    # 弱结合横桥比例（来自 Land ODE）
+Zetas_prev = Coefficient(S)    # 上一力学步的 Zetas
+Zetaw_prev = Coefficient(S)    # 上一力学步的 Zetaw
+lmbda_prev = Coefficient(S)    # 上一力学步的纤维伸长率
+dt_mech    = Coefficient(real)    # 力学时间步长（s）
+
+U = TrialFunction(element)
+V = TestFunction(element)
+X = Coefficient(element)
+
+# Out normal at reference configuration.
+N = FacetNormal(tetrahedron)
+
+# The deformation gradient
+FF = grad(X) + Identity(len(X))
+
+# The first Piola-Kirchhoff stress
+PP = first_PK_stress(X)
+H = inner(PP, grad(V))*dx(degree=5) + inner(U, V)*dx
+
+# Pressure
+H += pressure * inner(cofac(FF)*N,V)*ds(subdomain_id=2)
+
+# 限制开口处只能径向移动
+# boundary condition at the base
+X0 = SpatialCoordinate(tetrahedron)
+R = (X0[0]        - 7.30042735, X0[1]        - 7.6448494, 0)
+r = (X0[0] + X[0] - 7.30042735, X0[1] + X[1] - 7.6448494, 0)
+direction_length = (R[0]*r[0] + R[1]*r[1])/(R[0]*R[0]+R[1]*R[1])
+
+x_constraint = direction_length*R[0]-r[0]
+y_constraint = direction_length*R[1]-r[1]
+z_constraint =  - X[2]
+H -= beta*inner(as_vector((x_constraint, y_constraint, z_constraint)),V)*ds(subdomain_id=3,degree=5)
+
+p_proj = TestFunction(S)
+q_proj = TrialFunction(S)
+
+F_proj = grad(X) + Identity(len(X))
+f_fiber_proj = F_proj * f0
+lmbda_proj_expr = sqrt(max_value(inner(f_fiber_proj, f_fiber_proj), 1e-16))
+
+a_proj_lmbda = q_proj * p_proj * dx
+L_proj_lmbda = lmbda_proj_expr * p_proj * dx
+
+a = lhs(H)
+L = rhs(H)
+
+forms = [a, L, a_proj_lmbda, L_proj_lmbda]
