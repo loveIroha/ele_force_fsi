@@ -91,7 +91,7 @@ int convergence_for_stokes_equations() {
 int main(int argc, char* argv[]) {
     loguru::add_file(generate_time_stamp("INFO.log").c_str(), loguru::Truncate, loguru::Verbosity_INFO);
     loguru::add_file(generate_time_stamp("WARNING.log").c_str(), loguru::Truncate, loguru::Verbosity_WARNING);
-    loguru::add_file(generate_time_stamp("WATCH.log").c_str(), loguru::Truncate, loguru::Verbosity_WATCH);
+    loguru::add_file(generate_time_stamp("WATCH.log").c_str(), loguru::Truncate, loguru::Verbosity_1);
     loguru::g_stderr_verbosity = loguru::Verbosity_WARNING;
 
     Kokkos::initialize(argc, argv);

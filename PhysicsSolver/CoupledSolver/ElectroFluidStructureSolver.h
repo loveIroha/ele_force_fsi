@@ -10,28 +10,26 @@
  * 将电生理（Electrophysiology）、固体力学（Solid）、流体力学（Fluid）
  * 三个物理场耦合在一起，实现心脏电-流-固耦合模拟。
  * 
- * 数据流:
- *   EP(节点级) --Ca_i--> node_to_cell --> 固体(单元级) --calculate_T--> T
- *   固体(单元级) --lambda--> cell_to_node --> EP(节点级) --NHS--> 主动收缩
- *   固体 <--IBM--> 流体 (浸没边界法)
  */
 
 #ifndef __ELECTRO_FLUID_STRUCTURE_SOLVER_H__
 #define __ELECTRO_FLUID_STRUCTURE_SOLVER_H__
 
 #include <dolfin.h>
-#include <loguru/loguru.hpp>
+#include <io/include/io/loguru.hpp>
 
 #include "../ElectrophysiologySolver/ElectrophysiologySolver.h"
-#include "../SolidSolver/ActiveLeftVentricle/ActiveLeftVentricleSolver.h"
-#include "../SolidSolver/ActiveLeftVentricle/ActiveContraction.h"
+// #include "../SolidSolver/ActiveLeftVentricle/ActiveLeftVentricleSolver.h"
+// #include "../SolidSolver/ActiveLeftVentricle/ActiveContraction.h"
 #include "../FluidSolver/FluidSolver.h"
-#include "../ImmersedBoundaryMethod/ImmersedBoundaryMethod2.h"
-#include "../ImmersedBoundaryMethod/ElerianLagrangianInteraction2.h"
+#include "../ImmersedBoundaryMethod/ImmersedBoundaryMethod3D.h"
+#include "../ImmersedBoundaryMethod/ElerianLagrangianInteraction3D.h"
 
 #include <AlgebraSolver/NewtonSolver.h>
 #include <AlgebraSolver/BiCGSTAB.h>
 #include <AlgebraSolver/StdVector.h>
+#include <unordered_map>
+#include <cstdio>
 
 namespace dolfin {
 
@@ -127,25 +125,137 @@ public:
      * @param fluid_solver  流体求解器 (ProjectionSchemeGPU)
      * @param ep_solver     电生理求解器 (ElectrophysiologySolver)
      */
+    template <typename USolid, typename UFluid>
     ElectroFluidStructureSolver(
-        std::shared_ptr<ImmersedMesh> solid_mesh,
-        std::shared_ptr<BackgroundMesh2> fluid_mesh,
-        std::shared_ptr<SolidSolverType> solid_solver,
-        std::shared_ptr<FluidSolverType> fluid_solver,
+        std::shared_ptr<ImmersedMeshP1> solid_mesh,
+        std::shared_ptr<BackgroundMesh3D<3>> fluid_mesh,
+        std::shared_ptr<USolid> solid_solver,
+        std::shared_ptr<UFluid> fluid_solver,
         std::shared_ptr<ElectrophysiologySolver> ep_solver)
         : _solid_mesh(solid_mesh),
           _fluid_mesh(fluid_mesh),
-          _solid_solver(solid_solver),
-          _fluid_solver(fluid_solver),
+          _solid_solver(std::dynamic_pointer_cast<SolidSolverType>(solid_solver)),
+          _fluid_solver(std::dynamic_pointer_cast<FluidSolverType>(fluid_solver)),
           _ep_solver(ep_solver),
-          _ibm_solver(std::make_shared<ImmersedBoundaryMethod2<SolidSolverType, FluidSolverType, VectorType>>(
-              solid_mesh, fluid_mesh, solid_solver, fluid_solver)),
+          _ibm_solver(std::make_shared<ImmersedBoundaryMethod<FluidSolverType, SolidSolverType>>(
+              fluid_mesh, std::dynamic_pointer_cast<FluidSolverType>(fluid_solver), solid_mesh, std::dynamic_pointer_cast<SolidSolverType>(solid_solver))),
           _t(0.0), _dt(0.0),
           _t_end_diastole(0.5),     // 舒张期结束时间 [s]
           _ep_enabled(true)
     {
         // 获取 dolfin mesh 用于插值
         _dolfin_mesh = _solid_mesh->get_dolfin_mesh();
+
+        if (!_solid_solver) {
+            throw std::runtime_error("ElectroFluidStructureSolver: solid solver cast failed");
+        }
+        if (!_fluid_solver) {
+            throw std::runtime_error("ElectroFluidStructureSolver: fluid solver cast failed");
+        }
+        if (!_ep_solver) {
+            throw std::runtime_error("ElectroFluidStructureSolver: ep solver is null");
+        }
+        if (!_dolfin_mesh) {
+            throw std::runtime_error("ElectroFluidStructureSolver: solid dolfin mesh is null");
+        }
+
+        const std::size_t solid_scalar_dofs = _solid_mesh->num_dofs();
+        const std::size_t solid_vector_dofs = _solid_solver->V ? _solid_solver->V->dim() : 0;
+        if (solid_vector_dofs != solid_scalar_dofs * 3) {
+            throw std::runtime_error(
+                "ElectroFluidStructureSolver: solid dof mismatch, mesh scalar dofs=" +
+                std::to_string(solid_scalar_dofs) + ", solver vector dofs=" +
+                std::to_string(solid_vector_dofs));
+        }
+
+        auto make_key = [](double x, double y, double z) {
+            char buf[128];
+            std::snprintf(buf, sizeof(buf), "%.9f_%.9f_%.9f", x, y, z);
+            return std::string(buf);
+        };
+
+        auto build_coord_map = [&](const std::vector<double>& all_coords,
+                                   const std::vector<int>& dofs,
+                                   std::size_t all_dofs,
+                                   const char* label) {
+            if (all_coords.size() != all_dofs * 3) {
+                throw std::runtime_error(
+                    std::string("ElectroFluidStructureSolver: coord size mismatch for " ) + label +
+                    ", coords=" + std::to_string(all_coords.size() / 3) +
+                    ", dofs=" + std::to_string(all_dofs));
+            }
+
+            std::unordered_map<std::string, std::size_t> coord_map;
+            coord_map.reserve(dofs.size());
+            for (int dof : dofs) {
+                if (dof < 0 || static_cast<std::size_t>(dof) >= all_dofs) {
+                    throw std::runtime_error(
+                        std::string("ElectroFluidStructureSolver: dof index out of range for " ) + label);
+                }
+                const std::size_t idx = static_cast<std::size_t>(dof);
+                coord_map.emplace(
+                    make_key(all_coords[3 * idx], all_coords[3 * idx + 1], all_coords[3 * idx + 2]),
+                    idx);
+            }
+            return coord_map;
+        };
+
+        const std::size_t vector_dofs = _solid_solver->V->dim();
+        std::vector<double> vector_coords = _solid_solver->V->tabulate_dof_coordinates();
+        if (vector_coords.size() != vector_dofs * 3) {
+            throw std::runtime_error(
+                "ElectroFluidStructureSolver: vector coord mismatch, coords=" +
+                std::to_string(vector_coords.size() / 3) + ", dofs=" +
+                std::to_string(vector_dofs));
+        }
+
+        auto Vx = _solid_solver->V->sub(0);
+        auto Vy = _solid_solver->V->sub(1);
+        auto Vz = _solid_solver->V->sub(2);
+
+        if (Vx->dim() != solid_scalar_dofs || Vy->dim() != solid_scalar_dofs || Vz->dim() != solid_scalar_dofs) {
+            throw std::runtime_error(
+                "ElectroFluidStructureSolver: subspace dof mismatch with scalar mesh dofs");
+        }
+
+        const std::vector<int> dofs_x = Vx->dofmap()->dofs();
+        const std::vector<int> dofs_y = Vy->dofmap()->dofs();
+        const std::vector<int> dofs_z = Vz->dofmap()->dofs();
+
+        if (dofs_x.size() != solid_scalar_dofs || dofs_y.size() != solid_scalar_dofs || dofs_z.size() != solid_scalar_dofs) {
+            throw std::runtime_error(
+                "ElectroFluidStructureSolver: subspace dofmap size mismatch with scalar mesh dofs");
+        }
+
+        auto map_x = build_coord_map(vector_coords, dofs_x, vector_dofs, "Vx");
+        auto map_y = build_coord_map(vector_coords, dofs_y, vector_dofs, "Vy");
+        auto map_z = build_coord_map(vector_coords, dofs_z, vector_dofs, "Vz");
+
+        const auto& imm_coords = _solid_mesh->get_dof_coordinates();
+        if (imm_coords.size() != solid_scalar_dofs) {
+            throw std::runtime_error(
+                "ElectroFluidStructureSolver: ImmersedMesh dof mismatch, got " +
+                std::to_string(imm_coords.size()) + ", expected " + std::to_string(solid_scalar_dofs));
+        }
+
+        std::vector<std::size_t> imm_to_dolfin_vector;
+        imm_to_dolfin_vector.resize(solid_scalar_dofs * 3);
+
+        for (std::size_t i = 0; i < imm_coords.size(); ++i) {
+            const auto key = make_key(imm_coords[i].x, imm_coords[i].y, imm_coords[i].z);
+            auto itx = map_x.find(key);
+            auto ity = map_y.find(key);
+            auto itz = map_z.find(key);
+            if (itx == map_x.end() || ity == map_y.end() || itz == map_z.end()) {
+                throw std::runtime_error(
+                    "ElectroFluidStructureSolver: dof coordinate mismatch at index " + std::to_string(i));
+            }
+            imm_to_dolfin_vector[3 * i] = itx->second;
+            imm_to_dolfin_vector[3 * i + 1] = ity->second;
+            imm_to_dolfin_vector[3 * i + 2] = itz->second;
+        }
+
+        _solid_solver->set_dofmap_imm_to_dolfin_vector(imm_to_dolfin_vector);
         
         LOG_F(INFO, "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
         LOG_F(INFO, "初始化电-流-固三场耦合求解器");
@@ -157,7 +267,7 @@ public:
         LOG_F(INFO, "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
         
         // 初始化 Newton 求解器（用于 IBM 隐式格式）
-        auto bicgstab = std::make_shared<BiCGSTAB<VectorType>>(_ibm_solver->unkown_size() / 3);
+        auto bicgstab = std::make_shared<BiCGSTAB<VectorType>>(1);
         bicgstab->set_tolerance(1e-3);
         bicgstab->set_max_iteration(20);
         _newton_solver = std::make_shared<::NewtonSolver<VectorType>>(bicgstab);
@@ -168,17 +278,12 @@ public:
         _xn = std::make_shared<VectorType>();
         _xn_1 = std::make_shared<VectorType>();
         _xn_new = std::make_shared<VectorType>();
-        _xn->resize(_ibm_solver->unkown_size() / 3);
-        _xn_1->resize(_ibm_solver->unkown_size() / 3);
-        _xn_new->resize(_ibm_solver->unkown_size() / 3);
         
-        _ibm_solver->get_solid_positions(*_xn);
-        *_xn_1 = *_xn;
-        *_xn_new = *_xn;
+        _xn->resize(_ibm_solver->_solid_displacement.size());_xn_1->resize(_xn->size());_xn_new->resize(_xn->size());for(size_t i=0;i<_xn->size();++i){_xn->data()[i]=_ibm_solver->_solid_displacement[i];_xn_1->data()[i]=_xn->data()[i];_xn_new->data()[i]=_xn->data()[i];}
+        
+        
         _dt_ratio = 1.0;
         
-        // 初始化 ActiveContraction 查表数据（模式 B 需要）
-        ActiveContraction::read_GPB_data();
         
         LOG_F(INFO, "电-流-固三场耦合求解器初始化完成");
     }
@@ -223,6 +328,19 @@ public:
         
         _t = t;
         _dt = dt;
+        _solid_solver->_t = _t;
+        _solid_solver->_dt = _dt;
+        _solid_solver->_t = _t;
+        _solid_solver->_dt = _dt;
+        _solid_solver->_t = _t;
+        _solid_solver->_dt = _dt;
+
+        if (_ibm_solver->_solid_displacement.size() != _solid_mesh->num_dofs()) {
+            throw std::runtime_error(
+                "solve_timestep: solid displacement size mismatch, got " +
+                std::to_string(_ibm_solver->_solid_displacement.size()) +
+                ", expected " + std::to_string(_solid_mesh->num_dofs()));
+        }
         
         // ═══════════════════════════════════════════════════════════
         // Step 1: 电生理求解（多个 PDE 步）
@@ -244,69 +362,72 @@ public:
         }
         
         // ═══════════════════════════════════════════════════════════
-        // Step 2: 主动收缩张力计算
+        // Step 2: 主动收缩张力相关的横桥传递 (电 -> 力)
         // ═══════════════════════════════════════════════════════════
-        ActiveContraction::t_end_diastole = _t_end_diastole;
-        ActiveContraction::time_current = t;
-        
         if (t >= _t_end_diastole)
         {
             if (_ep_enabled)
             {
-                // 模式 A: 电-力耦合 — Ca_i 来自电生理
-                // EP (节点级 Ca_i) → node_to_cell → 固体 (单元级 MeshFunction)
-                auto Ca_i_node = _ep_solver->get_Ca_i_field();    // 节点级 [μM]
-                auto Ca_i_cell = node_to_cell_average(
-                    *_dolfin_mesh, Ca_i_node);                     // 单元级
-                _solid_solver->set_Ca_i_from_electrophysiology(Ca_i_cell);
+                // EP (GPB+Land) 提供横桥状态 (XS, XW) -> 固体
+                auto XS_vec = _ep_solver->get_XS_field();
+                auto XW_vec = _ep_solver->get_XW_field();
+                if (XS_vec.size() != _solid_mesh->num_dofs() || XW_vec.size() != _solid_mesh->num_dofs()) {
+                    throw std::runtime_error(
+                        "solve_timestep: XS/XW size mismatch, XS=" + std::to_string(XS_vec.size()) +
+                        ", XW=" + std::to_string(XW_vec.size()) +
+                        ", expected " + std::to_string(_solid_mesh->num_dofs()));
+                }
+                _solid_solver->set_land_crossbridge_states(XS_vec, XW_vec);
             }
-            else
-            {
-                // 模式 B: 原始模式 — Ca_i 来自 dat 文件查表
-                ActiveContraction::cai_current_calculation(t, dt);
-            }
-            
-            // 计算主动收缩张力 T（两种模式都需要）
-            _solid_solver->contraction->calculate_T(t, dt);
         }
         
         // ═══════════════════════════════════════════════════════════
-        // Step 3: 力学状态反馈到电生理
+        // Step 3: 流固耦合求解（与 ImmersedBoundaryMethod3D 同步：显式格式）
+        // ═══════════════════════════════════════════════════════════
+
+        _ibm_solver->set_t(_t);
+        _ibm_solver->set_dt(dt * _dt_ratio);
+
+        // 更新高斯积分点当前构型（用于力分布/速度插值）
+        _ibm_solver->fun_update_disp();
+
+        // 从流体插值到拉格朗日点得到固体速度
+        std::vector<double3> U(_ibm_solver->_solid_displacement.size());
+        _ibm_solver->calculate_solid_velocity(_ibm_solver->_solid_displacement, U);
+
+        // 显式更新位移：X^{n+1} = X^n + dt * U
+        algebra::axpy(dt * _dt_ratio, U, _ibm_solver->_solid_displacement);
+
+        // 同步本类中的状态向量缓存（用于外部监控/兼容）
+        _xn_new->resize(_ibm_solver->_solid_displacement_2.size() / 3);
+        _xn->resize(_ibm_solver->_solid_displacement_2.size() / 3);
+        _xn_1->resize(_ibm_solver->_solid_displacement_2.size() / 3);
+
+        auto disp_flat = algebra::flatten<double3, double>(_ibm_solver->_solid_displacement);
+        for (size_t i = 0; i < _xn_new->size(); ++i) {
+            _xn_1->data()[i] = _xn->data()[i];
+            _xn->data()[i] = _xn_new->data()[i];
+            _xn_new->data()[i] = make_double3(disp_flat[3*i], disp_flat[3*i + 1], disp_flat[3*i + 2]);
+        }
+        
+        // ═══════════════════════════════════════════════════════════
+        // Step 4: 力学状态反馈到电生理 (力 -> 电)
         // ═══════════════════════════════════════════════════════════
         if (_ep_enabled)
         {
-            auto [lambda_cell, dlambda_dt_cell] = _solid_solver->get_mechanical_state();
-            
-            if (!lambda_cell.empty()) {
-                auto lambda_node = cell_to_node_average(
-                    *_dolfin_mesh, lambda_cell);
-                auto dlambda_dt_node = cell_to_node_average(
-                    *_dolfin_mesh, dlambda_dt_cell);
-                _ep_solver->set_mechanical_state(lambda_node, dlambda_dt_node);
+            std::vector<double> lmbda, zetas, zetaw;
+            _solid_solver->get_mechanics_feedback(lmbda, zetas, zetaw);
+            if (!lmbda.empty()) {
+                _ep_solver->update_mechanics_feedback(lmbda, zetas, zetaw);
+            } else {
+                LOG_F(WARNING, "Mechanics feedback is empty; skip EP update this step.");
             }
         }
-        
-        // ═══════════════════════════════════════════════════════════
-        // Step 4: 流固耦合求解（浸没边界法 + Newton 迭代）
-        // ═══════════════════════════════════════════════════════════
-        
-        // 预测初值: x_new = (1+1/dt_ratio)*xn - (1/dt_ratio)*xn_1
-        _xn_new->axpy(-(1.0 + _dt_ratio) / _dt_ratio, *_xn, *_xn_1);
-        _xn_new->axpy(-1.0 - _dt_ratio, *_xn_new, *_xn_new);
-        
-        _ibm_solver->set_dt(dt * _dt_ratio);
-        auto nonlinear_result = _newton_solver->Solve(_ibm_solver, _xn_new, nullptr);
-        
-        // 更新位置
-        *_xn_1 = *_xn;
-        *_xn = *_xn_new;
-        _ibm_solver->advance(*_xn_new);
         
         // 更新时间
         _t += dt;
         
-        LOG_F(INFO, "时间步完成: t_new = %.6e s, Newton 迭代 = %d, 残差 = %.2e",
-              _t, nonlinear_result.second.second, nonlinear_result.second.first);
+        LOG_F(INFO, "时间步完成: t_new = %.6e s", _t);
     }
     
     // ═══════════════════════════════════════════════════════════════════
@@ -326,10 +447,10 @@ public:
      */
     void solve_solid_with_ep(double t, double dt)
     {
-        auto Ca_i_node = _ep_solver->get_Ca_i_field();
-        auto Ca_i_cell = node_to_cell_average(*_dolfin_mesh, Ca_i_node);
-        _solid_solver->set_Ca_i_from_electrophysiology(Ca_i_cell);
-        _solid_solver->contraction->calculate_T(t, dt);
+        auto XS_vec = _ep_solver->get_XS_field();
+        auto XW_vec = _ep_solver->get_XW_field();
+        _solid_solver->set_land_crossbridge_states(XS_vec, XW_vec);
+        // Tension is calculated implicitly in solid solver step if implemented
     }
     
     // ═══════════════════════════════════════════════════════════════════
@@ -340,7 +461,7 @@ public:
     std::shared_ptr<SolidSolverType> get_solid_solver() const { return _solid_solver; }
     std::shared_ptr<FluidSolverType> get_fluid_solver() const { return _fluid_solver; }
     
-    std::shared_ptr<ImmersedBoundaryMethod2<SolidSolverType, FluidSolverType, VectorType>> 
+    std::shared_ptr<ImmersedBoundaryMethod<FluidSolverType, SolidSolverType>> 
     get_ibm_solver() const { return _ibm_solver; }
     
     std::shared_ptr<Mesh> get_dolfin_mesh() const { return _dolfin_mesh; }
@@ -398,15 +519,15 @@ public:
 
 private:
     // 网格
-    std::shared_ptr<ImmersedMesh> _solid_mesh;
-    std::shared_ptr<BackgroundMesh2> _fluid_mesh;
+    std::shared_ptr<ImmersedMeshP1> _solid_mesh;
+    std::shared_ptr<BackgroundMesh3D<3>> _fluid_mesh;
     std::shared_ptr<Mesh> _dolfin_mesh;   // = _solid_mesh->get_dolfin_mesh()
     
     // 求解器
     std::shared_ptr<SolidSolverType> _solid_solver;
     std::shared_ptr<FluidSolverType> _fluid_solver;
     std::shared_ptr<ElectrophysiologySolver> _ep_solver;
-    std::shared_ptr<ImmersedBoundaryMethod2<SolidSolverType, FluidSolverType, VectorType>> _ibm_solver;
+    std::shared_ptr<ImmersedBoundaryMethod<FluidSolverType, SolidSolverType>> _ibm_solver;
     
     // Newton 求解器（用于 IBM 隐式求解）
     std::shared_ptr<::NewtonSolver<VectorType>> _newton_solver;

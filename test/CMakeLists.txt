@@ -35,8 +35,8 @@ set(SOURCES
     # FSI/IBFE/3D/fsi_real_LV_diastole.cpp
     # FSI/IBFE/3D/fsi_real_BV_systole.cpp
     # FSI/IBFE/3D/fsi_real_BV_diastole.cpp
-    FSI/IBFE/3D/fsi_real_LV_systole.cpp
-    # FSI/IBFE/3D/fsi_real_LV_systole_electricity.cpp
+    # FSI/IBFE/3D/fsi_real_LV_systole.cpp
+    FSI/IBFE/3D/fsi_real_LV_systole_electricity.cpp
     # FSI/IBFE/3D/fsi_real_LVMV.cpp
     # FSI/IBFE/3D/fsi_real_MV_tube.cpp
     # FSI/IBFE/3D/fsi_cook_membrane.cpp

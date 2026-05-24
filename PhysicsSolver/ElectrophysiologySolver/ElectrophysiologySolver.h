@@ -2,7 +2,7 @@
 #define __ELECTROPHYSIOLOGY_SOLVER_H__
 
 #include <dolfin.h>
-#include <loguru/loguru.hpp>
+#include <io/include/io/loguru.hpp>
 #include "GPB_cell_model.h"
 #include "GPBTissueManager_Land.h"
 #include "Monodomain.h"  // FFC 生成
@@ -36,9 +36,6 @@ public:
     std::shared_ptr<MeshFunction<double>> c2;
 };
 
-/**
- * 刺激电流 Expression
- */
 class StimulusCurrentEP : public Expression
 {
 public:
@@ -92,9 +89,8 @@ public:
         : _mesh(mesh), _boundaries(boundaries),
           dt_pde_milliseconds(dt_pde_ms), dt_ode_milliseconds(dt_ode_ms)
     {
-        LOG_F(INFO, "初始化电生理求解器 (Monodomain + GPB)");
-        
-        // 创建标量函数空间 (用于膜电位)
+        LOG_F(INFO, "初始化电生理求解器 (Monodomain + GPB + Land)");
+
         V_scalar = std::make_shared<Monodomain::Form_a_ep_FunctionSpace_0>(mesh);
         
         // 创建向量函数空间 (用于纤维方向插值, P1 向量空间)
@@ -113,31 +109,23 @@ public:
         Constant V_rest(-0.0815455936324844);
         Vm->interpolate(V_rest);
         Vm_old->interpolate(V_rest);
-        LOG_F(INFO, "  初始静息电位: %.2f mV", Vm->vector()->max() * 1000.0);
-        
-        // 初始化 GPB 组织管理器
+
+        // Land版组织管理器接口: (function_space, dt_pde_ms, dt_ode_ms)
         tissue_manager = std::make_shared<GPBTissueManager>(
-            V_scalar, mesh, dt_pde_ms, dt_ode_ms
-        );
-        
-        // 时间步长常量
-        dt_constant = std::make_shared<Constant>(dt_pde_ms / 1000.0);  // 转换为秒
-        
-        // 纤维方向函数（需要外部设置）
+            V_scalar, dt_pde_ms, dt_ode_ms);
+
+        dt_constant = std::make_shared<Constant>(dt_pde_ms / 1000.0);
+
         fiber_func = std::make_shared<Function>(V_vector);
         sheet_func = std::make_shared<Function>(V_vector);
-        
-        // 默认刺激（无刺激）
-        stim_expr = std::make_shared<StimulusCurrentEP>(0.0, 0.0, 0.0);
+
+        stim_expr = std::make_shared<StimulusCurrentEP>(12.0, 500, 510); // 默认刺激：12 μA/cm², 500-510 ms
         I_stim->interpolate(*stim_expr);
-        
+
         _initialized = false;
         LOG_F(INFO, "电生理求解器初始化完成（需要调用 setup_forms 完成配置）");
     }
-    
-    /**
-     * 设置纤维方向（从 XML 文件加载）
-     */
+
     void set_fiber_directions(
         const std::string& fiber_0_xml,
         const std::string& fiber_1_xml,
@@ -263,8 +251,8 @@ public:
         // Step 1: 更新刺激电流
         stim_expr->update_time(time_ms);
         I_stim->interpolate(*stim_expr);
-        
-        // Step 2: 计算离子电流（ODE 子循环）
+
+        // ODE子循环: GPB + Land ODE (XS/XW)
         tissue_manager->compute_ionic_current_subcycling(Vm_old, I_ion, time_ms);
         
         // Step 3: 求解 PDE
@@ -273,159 +261,90 @@ public:
         // Step 4: 更新 Vm_old
         *Vm_old = *Vm;
     }
-    
-    /**
-     * 获取钙离子浓度场 (用于力学求解器)
-     * @return 节点级钙离子浓度向量 (μM)
-     */
-    std::vector<double> get_Ca_i_field() const
+
+    // ====== Solid 侧耦合接口 ======
+    std::vector<double> get_Ca_i_field() const { return tissue_manager->get_Ca_i_vector(); }
+    std::vector<double> get_XS_field() const { return tissue_manager->get_XS_vector(); }
+    std::vector<double> get_XW_field() const { return tissue_manager->get_XW_vector(); }
+
+    void update_mechanics_feedback(const std::vector<double>& lmbda,
+                                   const std::vector<double>& zetas,
+                                   const std::vector<double>& zetaw)
     {
-        return tissue_manager->get_Ca_i_vector();
+        tissue_manager->update_mechanics_feedback(lmbda, zetas, zetaw);
     }
-    
-    /**
-     * 获取主动张力场
-     * @return 节点级主动张力向量 (kPa)
-     */
-    std::vector<double> get_active_tension_field() const
-    {
-        return tissue_manager->get_active_tension();
-    }
-    
-    /**
-     * 获取膜电位函数 (用于输出)
-     */
+
+    // ====== 常规访问接口 ======
     std::shared_ptr<Function> get_Vm() const { return Vm; }
-    
-    /**
-     * 获取膜电位旧值函数
-     */
     std::shared_ptr<Function> get_Vm_old() const { return Vm_old; }
-    
-    /**
-     * 获取离子电流函数
-     */
     std::shared_ptr<Function> get_I_ion() const { return I_ion; }
-    
-    /**
-     * 获取刺激电流函数
-     */
     std::shared_ptr<Function> get_I_stim() const { return I_stim; }
-    
-    /**
-     * 获取 GPB 组织管理器（用于高级操作）
-     */
     std::shared_ptr<GPBTissueManager> get_tissue_manager() const { return tissue_manager; }
-    
-    /**
-     * 获取标量函数空间
-     */
     std::shared_ptr<FunctionSpace> get_function_space() const { return V_scalar; }
-    
-    /**
-     * 设置力学状态（从固体求解器接收）
-     */
-    void set_mechanical_state(const std::vector<double>& lambda,
-                              const std::vector<double>& dlambda_dt)
-    {
-        tissue_manager->set_mechanical_state(lambda, dlambda_dt);
-    }
-    
-    /**
-     * 获取统计信息
-     */
+
     GPBTissueManager::Statistics get_statistics() const
     {
         return tissue_manager->get_statistics(Vm, I_ion);
     }
-    
-    /**
-     * 获取张力统计信息
-     */
+
+    GPBTissueManager::LandStats get_land_statistics() const
+    {
+        return tissue_manager->get_land_statistics();
+    }
+
     GPBTissueManager::TensionStats get_tension_statistics() const
     {
         return tissue_manager->get_tension_statistics();
     }
-    
-    /**
-     * 检查数值稳定性
-     */
+
     bool check_stability(double acceptable_Vm_range_mV = 200.0) const
     {
         return tissue_manager->check_stability(Vm, I_ion, acceptable_Vm_range_mV);
     }
-    
-    /**
-     * 将主动张力设置到 FEniCS Function（用于可视化）
-     */
-    void set_tension_to_function(std::shared_ptr<Function> T_func)
-    {
-        tissue_manager->set_tension_function(T_func);
-    }
-    
-    /**
-     * 将钙离子浓度设置到 FEniCS Function（用于可视化）
-     */
+
     void set_Ca_i_to_function(std::shared_ptr<Function> Ca_i_func)
     {
         auto Ca_i_values = tissue_manager->get_Ca_i_vector();
         Ca_i_func->vector()->set_local(Ca_i_values);
         Ca_i_func->vector()->apply("insert");
     }
-    
-    /**
-     * 插值主动张力到单元级（用于固体求解器 UFL 形式）
-     */
-    void interpolate_tension_to_cells()
+
+    void set_tension_to_function(std::shared_ptr<Function> T_func)
     {
-        tissue_manager->interpolate_tension_to_cells();
-    }
-    
-    /**
-     * 获取单元级张力 MeshFunction
-     */
-    std::shared_ptr<MeshFunction<double>> get_T_cell_meshfunction() const
-    {
-        return tissue_manager->get_T_cell_meshfunction();
+        auto XS_values = tissue_manager->get_XS_vector();
+        T_func->vector()->set_local(XS_values);
+        T_func->vector()->apply("insert");
     }
 
 private:
-    // FEniCS 对象
     std::shared_ptr<Mesh> _mesh;
     std::shared_ptr<MeshFunction<std::size_t>> _boundaries;
     std::shared_ptr<FunctionSpace> V_scalar;
     std::shared_ptr<FunctionSpace> V_vector;
-    
-    // 电生理变量
+
     std::shared_ptr<Function> Vm;
     std::shared_ptr<Function> Vm_old;
     std::shared_ptr<Function> I_ion;
     std::shared_ptr<Function> I_stim;
-    
-    // 纤维方向
+
     std::shared_ptr<Function> fiber_func;
     std::shared_ptr<Function> sheet_func;
     std::shared_ptr<FiberDirectionsEP> fiber_expr;
     std::shared_ptr<FiberDirectionsEP> sheet_expr;
-    
-    // 刺激电流
+
     std::shared_ptr<StimulusCurrentEP> stim_expr;
-    
-    // 变分形式
+
     std::shared_ptr<Monodomain::Form_a_ep> a_ep;
     std::shared_ptr<Monodomain::Form_L_ep> L_ep;
     std::shared_ptr<LinearVariationalProblem> ep_problem;
     std::shared_ptr<LinearVariationalSolver> ep_solver;
-    
-    // 时间参数
+
     double dt_pde_milliseconds;
     double dt_ode_milliseconds;
     std::shared_ptr<Constant> dt_constant;
-    
-    // GPB 组织管理器
+
     std::shared_ptr<GPBTissueManager> tissue_manager;
-    
-    // 初始化标志
+
     bool _initialized;
 };
 

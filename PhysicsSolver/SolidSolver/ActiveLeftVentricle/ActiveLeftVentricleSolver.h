@@ -13,7 +13,7 @@
 #define __Active_Left_Ventricle_Solver_H__
 
 #include <dolfin.h>
-#include <mshr.h>
+// #include <mshr.h>
 #include <vector_types.h>
 
 #include <fstream>

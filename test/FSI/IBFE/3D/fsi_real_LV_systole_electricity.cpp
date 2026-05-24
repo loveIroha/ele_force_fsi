@@ -1,3 +1,5 @@
+#include <PhysicsSolver/ElectrophysiologySolver/ElectrophysiologySolver.h>
+#include <PhysicsSolver/CoupledSolver/ElectroFluidStructureSolver.h>
 /// @date 2024-01-18
 /// @file fsi_real_LV_systole_electricity.cpp
 /// @author Ma Pengfei (code@pengfeima.cn)
@@ -9,7 +11,7 @@
 ///
 
 
-#include <PhysicsSolver/ImmersedBoundaryMethod/ImmersedBoundaryMethod3D.h>
+// #include <PhysicsSolver/ImmersedBoundaryMethod/ImmersedBoundaryMethod3D.h>
 #include <PhysicsSolver/ImmersedBoundaryMethod/MeshInteraction3D.h>
 #include <PhysicsSolver/SolidSolver/RealLeftVentricleSystoleElectricity/RealLeftVentricleSolver.h>
 #include <PhysicsSolver/StokesFlow3D/NavierStokesSolution3D.h>
@@ -48,7 +50,7 @@ int fsi_simulation(std::shared_ptr<dolfin::Mesh>                      solid_mesh
     {
         loguru::add_file((path + "INFO.log").c_str(), loguru::Truncate, loguru::Verbosity_INFO);
         loguru::add_file((path + "WARNING.log").c_str(), loguru::Truncate, loguru::Verbosity_WARNING);
-        loguru::add_file((path + "WATCH.log").c_str(), loguru::Truncate, loguru::Verbosity_WATCH);
+        loguru::add_file((path + "WATCH.log").c_str(), loguru::Truncate, loguru::Verbosity_1);
         loguru::g_stderr_verbosity = loguru::Verbosity_WARNING;
 
         // 创建背景网格
@@ -65,7 +67,23 @@ int fsi_simulation(std::shared_ptr<dolfin::Mesh>                      solid_mesh
             = std::make_shared<LocalSolidSolver>(solid_mesh->get_dolfin_mesh(), solid_mesh_boundary, f00, f01, f02, s00,
                                                  s01, s02, param::kappa, param::beta, path);
 
-        fsi_lid_simulation_explicit(domain_mesh, fluid_solver, solid_mesh, solid_solver);
+        double dt_pde_ms = 0.05;
+        double dt_ode_ms = 0.005;
+        auto ep_solver = std::make_shared<dolfin::ElectrophysiologySolver>(solid_mesh->get_dolfin_mesh(), solid_mesh_boundary, dt_pde_ms, dt_ode_ms);
+        std::string fiber_dir = "/mnt/large2/gjh/realistic_left_ventricle/";
+        ep_solver->set_fiber_directions_from_dir(fiber_dir);
+        ep_solver->setup_forms();
+
+        auto efsi_solver = std::make_shared<dolfin::ElectroFluidStructureSolver<LocalSolidSolver, LocalFluidSolver, StdVector<double, double3>>>(solid_mesh, domain_mesh, solid_solver, fluid_solver, ep_solver);
+        double dt = T / Nt;
+        efsi_solver->set_dt(dt);
+        efsi_solver->set_t_end_diastole(0.5);
+        efsi_solver->set_ep_enabled(true);
+        double t = 0.0;
+        for (int i = 0; i < Nt; ++i) {
+            efsi_solver->solve_timestep(t, dt);
+            t += dt;
+        }
     }
 
     return 0;
@@ -114,7 +132,7 @@ auto parse_arguments(int argc, char* argv[]) {
         "kappa", "不可压约束", cxxopts::value<double>()->default_value("100000"))(
         "beta", "固定", cxxopts::value<double>()->default_value("10000000"))(
         // 最终时刻
-        "T", "Final time step.", cxxopts::value<double>()->default_value("40"))(
+        "T", "Final time step.", cxxopts::value<double>()->default_value("1.0"))(
 
         "h,help", "Show help");
 

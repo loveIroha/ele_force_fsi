@@ -1,9 +1,9 @@
 #pragma once
 #include <dolfin.h>
 #include <mpi.h>
-#include "GPB_cell_model.h"
+#include "PhysicsSolver/ElectrophysiologySolver/GPB_cell_model.h"
 // #include "ActiveContractionGPB.h"  // 已移除，NHS 模型不再使用
-#include "SDIRK3_Solver.h"
+#include "PhysicsSolver/ElectrophysiologySolver/SDIRK3_Solver.h"
 #include <vector>
 #include <memory>
 #include <omp.h>
@@ -290,7 +290,6 @@ public:
         double CaTrpn_mean;
         double lmbda_mean;
     };
-    using TensionStats = LandStats;
 
     LandStats get_land_statistics() const {
         double xs_min=1e9, xs_max=-1e9, xs_sum=0.0;
@@ -320,10 +319,6 @@ public:
         s.CaTrpn_mean = gct_sum / num_nodes_global;
         s.lmbda_mean  = glm_sum / num_nodes_global;
         return s;
-    }
-
-    TensionStats get_tension_statistics() const {
-        return get_land_statistics();
     }
 
     bool check_stability(

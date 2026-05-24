@@ -78,8 +78,10 @@ if(SPACK_CXX)
   set(CMAKE_CXX_COMPILER ${SPACK_CXX} CACHE STRING "the C++ compiler" FORCE)
   set(ENV{CXX} ${SPACK_CXX})
 else()
-  set(CMAKE_C_COMPILER $ENV{GCC_PATH}/gcc)
+  if(DEFINED ENV{GCC_PATH} AND NOT "$ENV{GCC_PATH}" STREQUAL "")
+    set(CMAKE_C_COMPILER $ENV{GCC_PATH}/gcc)
   set(CMAKE_CXX_COMPILER $ENV{GCC_PATH}/g++)
+  endif()
 endif()
 
 # 项目名称

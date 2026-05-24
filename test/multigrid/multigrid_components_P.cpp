@@ -72,7 +72,7 @@ void mg3D_p_solver(int N_, int Nt) {
 int main(int argc, char* argv[]) {
     loguru::add_file("Multigrid_P_INFO.log", loguru::Truncate, loguru::Verbosity_INFO);
     loguru::add_file("Multigrid_P_WARNING.log", loguru::Truncate, loguru::Verbosity_WARNING);
-    loguru::add_file("Multigrid_P_WATCH.log", loguru::Truncate, loguru::Verbosity_WATCH);
+    loguru::add_file("Multigrid_P_WATCH.log", loguru::Truncate, loguru::Verbosity_1);
     loguru::g_stderr_verbosity = loguru::Verbosity_WARNING;
     Kokkos::initialize(argc, argv);
     std::vector<int> Ns{8, 16, 32, 64, 128, 256, 512};

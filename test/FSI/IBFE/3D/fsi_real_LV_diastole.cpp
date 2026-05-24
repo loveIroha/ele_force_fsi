@@ -61,7 +61,7 @@ int fsi_simulation(std::shared_ptr<dolfin::Mesh>                      solid_mesh
     {
         loguru::add_file((param::path + "INFO.log").c_str(), loguru::Truncate, loguru::Verbosity_INFO);
         loguru::add_file((param::path + "WARNING.log").c_str(), loguru::Truncate, loguru::Verbosity_WARNING);
-        loguru::add_file((param::path + "WATCH.log").c_str(), loguru::Truncate, loguru::Verbosity_WATCH);
+        loguru::add_file((param::path + "WATCH.log").c_str(), loguru::Truncate, loguru::Verbosity_1);
         loguru::g_stderr_verbosity = loguru::Verbosity_WARNING;
 
         // 创建背景网格

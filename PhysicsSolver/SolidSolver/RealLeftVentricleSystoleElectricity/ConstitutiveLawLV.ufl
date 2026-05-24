@@ -87,7 +87,7 @@ def first_PK_stress(X):                           # X is the position of current
 
 pressure = Coefficient(real)
 tension  = Coefficient(real)
-kappa = Coefficient(real) 
+# kappa = Coefficient(real) 
 beta  = Coefficient(real)
 
 f0 = Coefficient(element)

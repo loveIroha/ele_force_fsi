@@ -39,7 +39,7 @@ void fun(int Ns, int Nt, double rho, double mu_f) {
 int main(int argc, char* argv[]) {
     loguru::add_file("Tube_Flow_INFO.log", loguru::Truncate, loguru::Verbosity_INFO);
     loguru::add_file("Tube_Flow_WARNING.log", loguru::Truncate, loguru::Verbosity_WARNING);
-    loguru::add_file("Tube_Flow_WATCH.log", loguru::Truncate, loguru::Verbosity_WATCH);
+    loguru::add_file("Tube_Flow_WATCH.log", loguru::Truncate, loguru::Verbosity_1);
     loguru::g_stderr_verbosity = loguru::Verbosity_WARNING;
     Kokkos::initialize(argc, argv);
 
