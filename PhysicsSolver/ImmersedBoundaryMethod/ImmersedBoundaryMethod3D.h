@@ -7,7 +7,7 @@
 /// @brief
 ///
 ///
-
+#pragma once
 #include <AlgebraSolver/algebra.h>
 #include <MeshTools/ImmersedMesh.h>
 #include <PhysicsSolver/ImmersedBoundaryMethod/MeshInteraction3D.h>

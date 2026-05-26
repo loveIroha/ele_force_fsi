@@ -508,6 +508,24 @@ public:
         _ep_solver->set_tension_to_function(T_func);
         tension_file << *T_func;
     }
+
+    /**
+     * 参考 ImmersedBoundaryMethod3D 的输出风格：
+     * 同时输出固体与流体 record 数据。
+     *
+     * 不输出 Vm。
+     */
+    void record()
+    {
+        LOG_F(INFO, "Record the results.");
+
+        _solid_solver->template record<double3, double>(
+            _ibm_solver->_solid_forces, _ibm_solver->_solid_displacement, _t);
+
+        auto [f1, f2, f3] = _fluid_solver->get_source();
+        auto [un, vn, wn, pn] = _fluid_solver->get_velocity_and_pressure();
+        _fluid_solver->record(un, vn, wn, f1, f2, f3, pn, _t);
+    }
     
     /**
      * 输出边界点位置（用于压力-容积曲线）
@@ -545,6 +563,7 @@ private:
     
     // 电生理开关
     bool _ep_enabled;
+
 };
 
 } // namespace dolfin

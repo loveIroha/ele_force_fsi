@@ -79,10 +79,17 @@ int fsi_simulation(std::shared_ptr<dolfin::Mesh>                      solid_mesh
         efsi_solver->set_dt(dt);
         efsi_solver->set_t_end_diastole(0.5);
         efsi_solver->set_ep_enabled(true);
+
+        const double output_interval = 0.01; // 10 ms
+        double next_output_t = 0.01;
         double t = 0.0;
         for (int i = 0; i < Nt; ++i) {
             efsi_solver->solve_timestep(t, dt);
             t += dt;
+            if (t >= next_output_t - 1e-12) {
+                efsi_solver->record();
+                next_output_t += output_interval;
+            }
         }
     }
 

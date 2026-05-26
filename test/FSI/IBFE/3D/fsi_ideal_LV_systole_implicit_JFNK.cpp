@@ -116,7 +116,7 @@ auto parse_arguments(int argc, char* argv[]) {
         "kappa", "不可压约束", cxxopts::value<double>()->default_value("100000"))(
         "beta", "固定", cxxopts::value<double>()->default_value("10000000"))(
         // 最终时刻
-        "T", "Final time step.", cxxopts::value<double>()->default_value("40"))(
+        "T", "Final time step.", cxxopts::value<double>()->default_value("1.0"))(
 
         "h,help", "Show help");
 
