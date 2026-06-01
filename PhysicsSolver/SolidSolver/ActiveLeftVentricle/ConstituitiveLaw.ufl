@@ -64,9 +64,9 @@ pressure = Coefficient(R)
 H += inner(pressure*det(F)*inv(F)*N,v)*ds(subdomain_id=2,degree=5)
 
 # Active Traction
-T_scale = 3.0
+
 T  = Coefficient(R)
-H += J*T_scale*T*inner(outer(f0,f0), grad(v))*dx(degree=5)
+H += J*T*inner(outer(f0,f0), grad(v))*dx(degree=5)
 
 # boundary condition at the base
 R = (x_start[0] - 7.30042735, x_start[1] - 7.6448494, 0)

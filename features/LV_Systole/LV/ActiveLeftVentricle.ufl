@@ -48,14 +48,14 @@ W += a_s/2.0/b_s*(exp(b_s*(I_4s-1.0)*(I_4s-1.0))-1.0)
 W += a_fs/2.0/b_fs*(exp(b_fs*I_8fs*I_8fs)-1.0)
 
 # 主动收缩力
-T_scale = 1.0
+
 T  = Coefficient(R)
-# W += T_scale * T * (I_4f - 1)
+
 
 # 主动收缩力
 # https://github.com/andygedwards/SSCP_2018/blob/f0b8acbc1500def91daa0273b8f3b6a9bb14e564/L20-21A/guccionematerial.py#L4
 I4 = inner(f0, C*f0)
-W += T_scale * T /2.0 * (I_4f - 1)
+W += T /2.0 * (I_4f - 1)
 
 P = diff(W, F)
 
@@ -66,9 +66,9 @@ P -= a*exp(b*(I1-3))*inv(F).T
 P += beta_s*ln(I3)*inv(F).T
 
 # Define the active contraction force
-# T_scale = 1.0
+#
 # T  = Coefficient(R)
-# P += J*T_scale*T*F*(1+4.9*(sqrt(I4)-1))*outer(s0,s0)
+
 
 
 

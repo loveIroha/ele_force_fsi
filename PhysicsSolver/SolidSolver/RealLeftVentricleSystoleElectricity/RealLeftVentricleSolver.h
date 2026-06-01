@@ -34,7 +34,7 @@ class WallPressure : public dolfin::Expression {
     void eval(Array<double>& values, const Array<double>& x) const {
         values[0] = 0.0;
         double local_t = std::fmod(t, t_period);
-        const double p_peak = 18.75 * p_load;
+        const double p_peak = 12.625 * p_load;
         const double exp_tau = 0.004;
 
         if (local_t < t_load && t < t_period) {
@@ -46,11 +46,11 @@ class WallPressure : public dolfin::Expression {
         } else if (local_t >= t_end_diastole && local_t < t_end_diastole + t_systole) {
             double dt_local = local_t - t_end_diastole;
             double rise = 1.0 - std::exp(-dt_local * dt_local / exp_tau);
-            values[0] = p_load + (p_peak - p_load) * rise;
+            values[0] = p_load + p_peak * rise;
         } else if (local_t >= t_end_diastole + t_systole && local_t < t_period) {
             double dt_local = t_period - local_t;
             double fall = 1.0 - std::exp(-dt_local * dt_local / exp_tau);
-            values[0] = p_load + (p_peak - p_load) * fall;
+            values[0] = p_load + p_peak * fall;
         } else {
             values[0] = p_load;
         }
@@ -63,9 +63,9 @@ class WallPressure : public dolfin::Expression {
     double& dt;
     double  t_period       = 0.8;
     double  t_systole      = 0.15;
-    double  t_load         = 0.5;
+    double  t_load         = 0.4;
     double  p_load         = 8.0 * ISUnits::mmHg;
-    double  t_end_diastole = 0.8;
+    double  t_end_diastole = 0.5;
     double  end_time       = 0.8;
 };
 
@@ -110,7 +110,7 @@ class RealLeftVentricleSolver
         LOG_F(WARNING, " Real Left Ventricle Solver with electricity is called!");
         _boundaries = boundaries;
 
-        // L->kappa = std::make_shared<Constant>(kappa);
+        L->kappa = std::make_shared<Constant>(kappa);
         L->beta  = std::make_shared<Constant>(beta);
 
         // Define pressure

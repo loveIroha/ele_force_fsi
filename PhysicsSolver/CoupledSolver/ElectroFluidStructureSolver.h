@@ -385,7 +385,8 @@ public:
         // Step 3: 流固耦合求解（与 ImmersedBoundaryMethod3D 同步：显式格式）
         // ═══════════════════════════════════════════════════════════
 
-        _ibm_solver->set_t(_t);
+        // 与原始 IBM 显式流程一致：本步求解使用 t^{n+1}=t+dt 的时间标签
+        _ibm_solver->set_t(_t + dt * _dt_ratio);
         _ibm_solver->set_dt(dt * _dt_ratio);
 
         // 更新高斯积分点当前构型（用于力分布/速度插值）
@@ -394,6 +395,13 @@ public:
         // 从流体插值到拉格朗日点得到固体速度
         std::vector<double3> U(_ibm_solver->_solid_displacement.size());
         _ibm_solver->calculate_solid_velocity(_ibm_solver->_solid_displacement, U);
+
+        // 与独立 IBM 显式流程一致：将本步流体速度写回，作为下一步的速度初值
+        auto [un, vn, wn, pn] = _fluid_solver->get_velocity_and_pressure();
+        (void)pn;
+        _ibm_solver->eulerian_velocity_u = algebra::flatten(un);
+        _ibm_solver->eulerian_velocity_v = algebra::flatten(vn);
+        _ibm_solver->eulerian_velocity_w = algebra::flatten(wn);
 
         // 显式更新位移：X^{n+1} = X^n + dt * U
         algebra::axpy(dt * _dt_ratio, U, _ibm_solver->_solid_displacement);
@@ -525,6 +533,10 @@ public:
         auto [f1, f2, f3] = _fluid_solver->get_source();
         auto [un, vn, wn, pn] = _fluid_solver->get_velocity_and_pressure();
         _fluid_solver->record(un, vn, wn, f1, f2, f3, pn, _t);
+
+        // 便于直接检查收缩是否生效：输出当前构型体积（与旧 IBM 代码一致的计算方式）
+        auto volume_now = _solid_mesh->current_area(_ibm_solver->_solid_displacement);
+        LOG_F(WATCH, "Current LV enclosed volume (current_area) = %.16e", volume_now);
     }
     
     /**

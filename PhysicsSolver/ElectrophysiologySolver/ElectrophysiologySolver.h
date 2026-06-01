@@ -6,6 +6,7 @@
 #include "GPB_cell_model.h"
 #include "GPBTissueManager_Land.h"
 #include "Monodomain.h"  // FFC 生成
+#include <unordered_set>
 
 namespace dolfin {
 
@@ -39,26 +40,95 @@ public:
 class StimulusCurrentEP : public Expression
 {
 public:
+    StimulusCurrentEP(double amplitude, double t_start_ms, double t_end_ms,
+                      std::shared_ptr<const Mesh> mesh,
+                      std::shared_ptr<const MeshFunction<std::size_t>> facet_markers,
+                      std::size_t endo_marker)
+        : Expression(), amp(amplitude), t_start(t_start_ms), t_end(t_end_ms),
+          current_time(0.0), mesh(mesh), facet_markers(facet_markers),
+          endo_marker(endo_marker), use_boundary_marker(true)
+    {
+        build_cell_to_boundary_map();
+    }
+
     StimulusCurrentEP(double amplitude, double t_start_ms, double t_end_ms)
         : Expression(), amp(amplitude), t_start(t_start_ms), t_end(t_end_ms), 
-          current_time(0.0) {}
+          current_time(0.0), mesh(nullptr), facet_markers(nullptr),
+          endo_marker(0), use_boundary_marker(false) {}
     
     void eval(Array<double>& values, const Array<double>& x) const override
     {
-        if (current_time >= t_start && current_time <= t_end) {
-            values[0] = amp;
-        } else {
+        // 没有单元信息时无法判定 marker，保守处理为 0（避免误刺激全域）
+        values[0] = 0.0;
+    }
+
+    void eval(Array<double>& values, const Array<double>& x,
+              const ufc::cell& cell) const override
+    {
+        if (current_time < t_start || current_time > t_end) {
             values[0] = 0.0;
+            return;
+        }
+
+        if (use_boundary_marker) {
+            const bool is_near_endo = (endocardial_cells.find(cell.index) != endocardial_cells.end());
+            values[0] = is_near_endo ? amp : 0.0;
+        } else {
+            // 兼容旧行为：无 marker 时全域刺激
+            values[0] = amp;
         }
     }
     
     void update_time(double t_ms) { current_time = t_ms; }
 
 private:
+    void build_cell_to_boundary_map()
+    {
+        endocardial_cells.clear();
+        if (!mesh || !facet_markers) {
+            use_boundary_marker = false;
+            return;
+        }
+
+        std::size_t num_endo_facets = 0;
+        std::size_t num_endo_cells = 0;
+        for (CellIterator cell(*mesh); !cell.end(); ++cell) {
+            bool near_endo = false;
+            for (FacetIterator facet(*cell); !facet.end(); ++facet) {
+                if (!facet->exterior()) continue;
+                if ((*facet_markers)[facet->index()] == endo_marker) {
+                    near_endo = true;
+                    ++num_endo_facets;
+                    break;
+                }
+            }
+            if (near_endo) {
+                endocardial_cells.insert(cell->index());
+                ++num_endo_cells;
+            }
+        }
+
+        if (endocardial_cells.empty()) {
+            LOG_F(WARNING,
+                  "StimulusCurrentEP: no cells found near endocardial marker=%zu. "
+                  "Fallback to global stimulus.", endo_marker);
+            use_boundary_marker = false;
+        } else {
+            LOG_F(INFO,
+                  "StimulusCurrentEP: endocardial marker=%zu, near-endo cells=%zu, matched exterior facets=%zu.",
+                  endo_marker, num_endo_cells, num_endo_facets);
+        }
+    }
+
     double amp;
     double t_start;
     double t_end;
     double current_time;
+    std::shared_ptr<const Mesh> mesh;
+    std::shared_ptr<const MeshFunction<std::size_t>> facet_markers;
+    std::size_t endo_marker;
+    bool use_boundary_marker;
+    std::unordered_set<std::size_t> endocardial_cells;
 };
 
 
@@ -87,7 +157,8 @@ public:
         double dt_pde_ms,
         double dt_ode_ms)
         : _mesh(mesh), _boundaries(boundaries),
-          dt_pde_milliseconds(dt_pde_ms), dt_ode_milliseconds(dt_ode_ms)
+          dt_pde_milliseconds(dt_pde_ms), dt_ode_milliseconds(dt_ode_ms),
+          _endo_marker(2)
     {
         LOG_F(INFO, "初始化电生理求解器 (Monodomain + GPB + Land)");
 
@@ -119,7 +190,12 @@ public:
         fiber_func = std::make_shared<Function>(V_vector);
         sheet_func = std::make_shared<Function>(V_vector);
 
-        stim_expr = std::make_shared<StimulusCurrentEP>(12.0, 500, 510); // 默认刺激：12 μA/cm², 500-510 ms
+        if (_boundaries) {
+            stim_expr = std::make_shared<StimulusCurrentEP>(
+                12.0, 500, 510, _mesh, _boundaries, _endo_marker); // 默认：内膜(marker=1)刺激
+        } else {
+            stim_expr = std::make_shared<StimulusCurrentEP>(12.0, 500, 510); // 无边界标记时回退全域刺激
+        }
         I_stim->interpolate(*stim_expr);
 
         _initialized = false;
@@ -195,9 +271,34 @@ public:
      */
     void set_stimulus(double amplitude, double t_start_ms, double t_end_ms)
     {
-        stim_expr = std::make_shared<StimulusCurrentEP>(amplitude, t_start_ms, t_end_ms);
-        LOG_F(INFO, "设置刺激电流: %.2f μA/cm², [%.2f, %.2f] ms", 
-              amplitude, t_start_ms, t_end_ms);
+        if (_boundaries) {
+            stim_expr = std::make_shared<StimulusCurrentEP>(
+                amplitude, t_start_ms, t_end_ms, _mesh, _boundaries, _endo_marker);
+            LOG_F(INFO, "设置内膜刺激(marker=%zu): %.2f μA/cm², [%.2f, %.2f] ms",
+                  _endo_marker, amplitude, t_start_ms, t_end_ms);
+        } else {
+            stim_expr = std::make_shared<StimulusCurrentEP>(amplitude, t_start_ms, t_end_ms);
+            LOG_F(INFO, "设置全域刺激(无边界标记): %.2f μA/cm², [%.2f, %.2f] ms",
+                  amplitude, t_start_ms, t_end_ms);
+        }
+    }
+
+    /**
+     * 设置刺激电流参数（指定边界 marker，仅作用于该边界邻近单元）
+     */
+    void set_stimulus_on_marker(double amplitude, double t_start_ms, double t_end_ms,
+                                std::size_t endo_marker)
+    {
+        _endo_marker = endo_marker;
+        if (_boundaries) {
+            stim_expr = std::make_shared<StimulusCurrentEP>(
+                amplitude, t_start_ms, t_end_ms, _mesh, _boundaries, _endo_marker);
+            LOG_F(INFO, "设置 marker 刺激(marker=%zu): %.2f μA/cm², [%.2f, %.2f] ms",
+                  _endo_marker, amplitude, t_start_ms, t_end_ms);
+        } else {
+            stim_expr = std::make_shared<StimulusCurrentEP>(amplitude, t_start_ms, t_end_ms);
+            LOG_F(WARNING, "set_stimulus_on_marker: boundary markers unavailable, fallback to global stimulus.");
+        }
     }
     
     /**
@@ -319,6 +420,7 @@ public:
 private:
     std::shared_ptr<Mesh> _mesh;
     std::shared_ptr<MeshFunction<std::size_t>> _boundaries;
+    std::size_t _endo_marker;
     std::shared_ptr<FunctionSpace> V_scalar;
     std::shared_ptr<FunctionSpace> V_vector;
 

@@ -53,8 +53,8 @@ for i in range(1, Nt+1):
 
 
 # 常数
-T_scale = 1.0
-T_ref = T_scale * 56.2 # kPa
+
+T_ref = 56.2 # kPa
 gamma = 2.0
 k_on = 100             # u/M/s
 k_off_ref = 200        # /s

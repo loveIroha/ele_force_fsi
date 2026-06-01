@@ -29,7 +29,7 @@ b_s = 1.6
 a_fs = 3000
 b_fs = 1.3
 
-T_scale = 3.0
+# T_scale = 3.0
 
 Tref_land  = 8.4e5    # dyn/cm²（= 84 kPa）
 rs_land    = 0.25     # 强结合横桥平衡比例
@@ -79,15 +79,15 @@ def first_PK_stress(X):                           # X is the position of current
     # P -= a*exp(b*(I1-3))*inv(F).T
 
     # incompressibility
-    # P += kappa*ln(I3)*inv(F).T
+    P += kappa*ln(I3)*inv(F).T
 
     # 收缩力
-    P += h_lambda * (Tref_land / rs_land) * (XS * (Zetas + 1.0) + XW * Zetaw)*outer(f0,f0)
+    P += h_lambda * (Tref_land / rs_land) * (XS * (Zetas + 1.0) + XW * Zetaw)*outer(f_fiber,f0)
     return P
 
 pressure = Coefficient(real)
 tension  = Coefficient(real)
-# kappa = Coefficient(real) 
+kappa = Coefficient(real) 
 beta  = Coefficient(real)
 
 f0 = Coefficient(element)
