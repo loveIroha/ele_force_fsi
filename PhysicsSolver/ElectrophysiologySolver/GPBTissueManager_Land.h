@@ -232,6 +232,19 @@ public:
         return out;
     }
 
+    // Land 主动收缩力（与固体 UFL 中 Ta 一致的节点表达）
+    std::vector<double> get_active_tension_vector() const {
+        std::vector<double> out(num_nodes_local, 0.0);
+        for (size_t i = 0; i < num_nodes_local; ++i) {
+            const double lmbda_c  = std::min(lmbda_nodes[i], 1.2);
+            const double h_prima  = 1.0 + 2.3 * (lmbda_c + std::min(lmbda_c, 0.87) - 1.87);
+            const double h_lambda = std::max(0.0, h_prima);
+            out[i] = h_lambda * (8.4e5 / 0.25) *
+                     (land_states[i].XS * (Zetas_nodes[i] + 1.0) + land_states[i].XW * Zetaw_nodes[i]);
+        }
+        return out;
+    }
+
     // -----------------------------------------------------------------------
     // 统计接口（与旧版本接口兼容）
     // -----------------------------------------------------------------------

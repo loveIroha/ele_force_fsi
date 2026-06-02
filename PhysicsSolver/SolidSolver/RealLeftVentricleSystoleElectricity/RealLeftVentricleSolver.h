@@ -184,6 +184,30 @@ class RealLeftVentricleSolver
         zetaw = zetaw_latest;
     }
 
+    // 导出当前步 Land 主动收缩力场（与 XS/XW 同标量空间）
+    void set_land_active_tension_to_function(std::shared_ptr<Function> Ta_func) const {
+        if (!Ta_func) {
+            throw std::runtime_error("set_land_active_tension_to_function: Ta_func is null");
+        }
+        std::vector<double> ta_local;
+        if (active_tension_latest.empty()) {
+            std::vector<double> ref_local;
+            XS_func->vector()->get_local(ref_local);
+            ta_local.assign(ref_local.size(), 0.0);
+        } else {
+            ta_local = active_tension_latest;
+        }
+        std::vector<double> ta_target;
+        Ta_func->vector()->get_local(ta_target);
+        if (ta_target.size() != ta_local.size()) {
+            throw std::runtime_error("set_land_active_tension_to_function: size mismatch, got " +
+                                     std::to_string(ta_target.size()) + ", expected " +
+                                     std::to_string(ta_local.size()));
+        }
+        Ta_func->vector()->set_local(ta_local);
+        Ta_func->vector()->apply("insert");
+    }
+
     void solveOneStep(std::vector<double>& vector_G, const std::vector<double>& vector_X) {
         const double dt_mech = std::max(this->_dt, 1.0e-9);
         dt_mech_const = std::make_shared<Constant>(dt_mech);
@@ -305,6 +329,7 @@ class RealLeftVentricleSolver
     std::vector<double> lmbda_latest;
     std::vector<double> zetas_latest;
     std::vector<double> zetaw_latest;
+    std::vector<double> active_tension_latest;
 
     void update_land_history(double dt_mech_s) {
         proj_solver->solve();
@@ -366,6 +391,7 @@ class RealLeftVentricleSolver
         lmbda_prev_func->vector()->apply("insert");
         lmbda_latest = lmbda_new;
 
+        active_tension_latest.assign(lmbda_new.size(), 0.0);
         double ta_sum = 0.0;
         for (size_t i = 0; i < lmbda_new.size(); ++i) {
             const double lmbda_c  = std::min(lmbda_new[i], 1.2);
@@ -373,6 +399,7 @@ class RealLeftVentricleSolver
             const double h_lambda = std::max(0.0, h_prima);
             const double Ta       = h_lambda * (8.4e5 / 0.25)
                               * (xs_vec[i] * (zetas_latest[i] + 1.0) + xw_vec[i] * zetaw_latest[i]);
+            active_tension_latest[i] = Ta;
             ta_sum += Ta;
         }
         current_tension = lmbda_new.empty() ? 0.0 : ta_sum / static_cast<double>(lmbda_new.size());

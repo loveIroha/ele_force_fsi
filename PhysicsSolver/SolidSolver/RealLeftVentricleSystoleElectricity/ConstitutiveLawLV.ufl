@@ -82,7 +82,8 @@ def first_PK_stress(X):                           # X is the position of current
     P += kappa*ln(I3)*inv(F).T
 
     # 收缩力
-    P += h_lambda * (Tref_land / rs_land) * (XS * (Zetas + 1.0) + XW * Zetaw)*outer(f_fiber,f0)
+    Ta = h_lambda * (Tref_land / rs_land) * (XS * (Zetas + 1.0) + XW * Zetaw)
+    P += Ta*outer(f_fiber,f0)
     return P
 
 pressure = Coefficient(real)

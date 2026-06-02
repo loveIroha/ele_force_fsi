@@ -417,6 +417,20 @@ public:
         T_func->vector()->apply("insert");
     }
 
+    void set_land_active_tension_to_function(std::shared_ptr<Function> Ta_func)
+    {
+        auto Ta_values = tissue_manager->get_active_tension_vector();
+        std::vector<double> ta_target;
+        Ta_func->vector()->get_local(ta_target);
+        if (ta_target.size() != Ta_values.size()) {
+            throw std::runtime_error("set_land_active_tension_to_function: size mismatch, got " +
+                                     std::to_string(ta_target.size()) + ", expected " +
+                                     std::to_string(Ta_values.size()));
+        }
+        Ta_func->vector()->set_local(Ta_values);
+        Ta_func->vector()->apply("insert");
+    }
+
 private:
     std::shared_ptr<Mesh> _mesh;
     std::shared_ptr<MeshFunction<std::size_t>> _boundaries;

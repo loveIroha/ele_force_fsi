@@ -513,15 +513,13 @@ public:
         
         // 输出张力（创建临时函数）
         auto T_func = std::make_shared<Function>(_ep_solver->get_function_space());
-        _ep_solver->set_tension_to_function(T_func);
+        _ep_solver->set_land_active_tension_to_function(T_func);
         tension_file << *T_func;
     }
 
     /**
      * 参考 ImmersedBoundaryMethod3D 的输出风格：
-     * 同时输出固体与流体 record 数据。
-     *
-     * 不输出 Vm。
+     * 同时输出固体与流体 record 数据，并追加 EP 的 Vm 与 Land 主动收缩力 Ta。
      */
     void record()
     {
@@ -529,6 +527,21 @@ public:
 
         _solid_solver->template record<double3, double>(
             _ibm_solver->_solid_forces, _ibm_solver->_solid_displacement, _t);
+
+        if (_solid_solver->_isoutput) {
+            auto vm_func = _ep_solver->get_Vm();
+            vm_func->rename("vm", "");
+            _solid_solver->file_xdmf->write(*vm_func, _t, XDMFFile::Encoding::HDF5);
+            _solid_solver->file_xdmf_checkpoint->write_checkpoint(
+                *vm_func, "vm", _t, XDMFFile::Encoding::HDF5, true);
+
+            auto ta_func = std::make_shared<Function>(_ep_solver->get_function_space());
+            ta_func->rename("active_tension", "");
+            _ep_solver->set_land_active_tension_to_function(ta_func);
+            _solid_solver->file_xdmf->write(*ta_func, _t, XDMFFile::Encoding::HDF5);
+            _solid_solver->file_xdmf_checkpoint->write_checkpoint(
+                *ta_func, "active_tension", _t, XDMFFile::Encoding::HDF5, true);
+        }
 
         auto [f1, f2, f3] = _fluid_solver->get_source();
         auto [un, vn, wn, pn] = _fluid_solver->get_velocity_and_pressure();
