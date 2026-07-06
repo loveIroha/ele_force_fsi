@@ -40,8 +40,8 @@ namespace LandParams {
     constexpr double rw        = 0.5;    // 弱结合横桥平衡比例
     constexpr double phi       = 2.23;   // 横桥功率冲程参数
     // 推导速率常数
-    constexpr double kwu = -kws + kuw * (1.0/rw - 1.0);  // ≈ 0.170 ms⁻¹
-    constexpr double ksu = kws * rw * (1.0/rs - 1.0);    // ≈ 0.018 ms⁻¹
+    constexpr double kwu =  kws + kuw * (1.0/rw - 1.0);  // ≈ 0.170 ms⁻¹
+    constexpr double ksu =  kws * rw * (1.0/rs - 1.0);    // ≈ 0.018 ms⁻¹
     // CaTrpn 参数
     constexpr double ntrpn     = 2.0;
     constexpr double ntm       = 2.4;
@@ -194,6 +194,29 @@ public:
     }
 
     // -----------------------------------------------------------------------
+    // 仅推进 Land ODE，不更新 GPB 细胞状态和 Monodomain PDE。
+    //
+    // 用于力学收缩前的预平衡阶段：EP 维持静息初值，Land 在静息 Ca_i
+    // 和当前力学反馈下持续演化，避免 t_start 时 XS/XW 从未更新状态突然启动。
+    // -----------------------------------------------------------------------
+    void advance_land_subcycling(double /*time_ms*/)
+    {
+        for (int substep = 0; substep < n_substeps; ++substep) {
+            #pragma omp parallel for schedule(static)
+            for (size_t node = 0; node < num_nodes_local; ++node) {
+                const double Ca_i_uM = cell_states[node][37] * 1000.0;
+                update_land_ode(
+                    land_states[node],
+                    Ca_i_uM,
+                    lmbda_nodes[node],
+                    Zetas_nodes[node],
+                    Zetaw_nodes[node],
+                    dt_ode_milliseconds);
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------------
     // 力学步收敛后由 main.cpp 调用（问题3修复核心）
     //
     // 传入当前步收敛后的 lmbda, Zetas, Zetaw 节点值，
@@ -233,13 +256,14 @@ public:
     }
 
     // Land 主动收缩力（与固体 UFL 中 Ta 一致的节点表达）
+    double Tref_land = 1.2e6;  // 参考张力（dyn/cm²），与 UFL 中 Tref 一致
     std::vector<double> get_active_tension_vector() const {
         std::vector<double> out(num_nodes_local, 0.0);
         for (size_t i = 0; i < num_nodes_local; ++i) {
             const double lmbda_c  = std::min(lmbda_nodes[i], 1.2);
             const double h_prima  = 1.0 + 2.3 * (lmbda_c + std::min(lmbda_c, 0.87) - 1.87);
             const double h_lambda = std::max(0.0, h_prima);
-            out[i] = h_lambda * (8.4e5 / 0.25) *
+            out[i] = h_lambda * (Tref_land / 0.25) *
                      (land_states[i].XS * (Zetas_nodes[i] + 1.0) + land_states[i].XW * Zetaw_nodes[i]);
         }
         return out;

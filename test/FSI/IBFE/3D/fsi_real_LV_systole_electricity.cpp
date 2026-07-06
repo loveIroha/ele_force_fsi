@@ -67,7 +67,7 @@ int fsi_simulation(std::shared_ptr<dolfin::Mesh>                      solid_mesh
             = std::make_shared<LocalSolidSolver>(solid_mesh->get_dolfin_mesh(), solid_mesh_boundary, f00, f01, f02, s00,
                                                  s01, s02, param::kappa, param::beta, path);
 
-        double dt_pde_ms = 0.05;
+        double dt_pde_ms = 0.01;
         double dt_ode_ms = 0.005;
         auto ep_solver = std::make_shared<dolfin::ElectrophysiologySolver>(solid_mesh->get_dolfin_mesh(), solid_mesh_boundary, dt_pde_ms, dt_ode_ms);
         std::string fiber_dir = "/mnt/large2/gjh/realistic_left_ventricle/";
@@ -77,7 +77,8 @@ int fsi_simulation(std::shared_ptr<dolfin::Mesh>                      solid_mesh
         auto efsi_solver = std::make_shared<dolfin::ElectroFluidStructureSolver<LocalSolidSolver, LocalFluidSolver, StdVector<double, double3>>>(solid_mesh, domain_mesh, solid_solver, fluid_solver, ep_solver);
         double dt = T / Nt;
         efsi_solver->set_dt(dt);
-        efsi_solver->set_t_end_diastole(0.5);
+        efsi_solver->set_t_end_diastole(dolfin::kSystoleStartTime);
+        efsi_solver->set_t_period(dolfin::t_period_con);
         efsi_solver->set_ep_enabled(true);
 
         const double output_interval = 0.01; // 10 ms
@@ -133,13 +134,13 @@ auto parse_arguments(int argc, char* argv[]) {
         // 背景网格步数
         "Nb", "Number of backgrand discretization.", cxxopts::value<int>()->default_value("64"))(
         // 时间步数
-        "Nt", "Number of time step.", cxxopts::value<int>()->default_value("10000"))(
+        "Nt", "Number of time step.", cxxopts::value<int>()->default_value("8000"))(
         "muf", "流体粘性", cxxopts::value<double>()->default_value("0.04"))(
         // "mus", "固体弹性", cxxopts::value<double>()->default_value("0.1"))(
         "kappa", "不可压约束", cxxopts::value<double>()->default_value("100000"))(
         "beta", "固定", cxxopts::value<double>()->default_value("10000000"))(
         // 最终时刻
-        "T", "Final time step.", cxxopts::value<double>()->default_value("1.0"))(
+        "T", "Final time step.", cxxopts::value<double>()->default_value("0.80"))(
 
         "h,help", "Show help");
 

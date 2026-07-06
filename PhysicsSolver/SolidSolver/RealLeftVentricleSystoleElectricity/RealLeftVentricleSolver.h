@@ -61,7 +61,7 @@ class WallPressure : public dolfin::Expression {
     // Current time
     double& t;
     double& dt;
-    double  t_period       = 0.8;
+    double  t_period       = 0.9;
     double  t_systole      = 0.15;
     double  t_load         = 0.4;
     double  p_load         = 8.0 * ISUnits::mmHg;
@@ -375,6 +375,7 @@ class RealLeftVentricleSolver
         const double Aw     = 10.0;
         const double exp_cs = std::exp(-cs * dt_mech_s);
         const double exp_cw = std::exp(-cw * dt_mech_s);
+        double Tref_land = 120 * ISUnits::kPa;
 
         for (size_t i = 0; i < zetas_latest.size(); ++i) {
             const double dlmbda     = lmbda_new[i] - lmbda_old[i];
@@ -397,7 +398,7 @@ class RealLeftVentricleSolver
             const double lmbda_c  = std::min(lmbda_new[i], 1.2);
             const double h_prima  = 1.0 + 2.3 * (lmbda_c + std::min(lmbda_c, 0.87) - 1.87);
             const double h_lambda = std::max(0.0, h_prima);
-            const double Ta       = h_lambda * (8.4e5 / 0.25)
+            const double Ta       = h_lambda * (Tref_land / 0.25)
                               * (xs_vec[i] * (zetas_latest[i] + 1.0) + xw_vec[i] * zetaw_latest[i]);
             active_tension_latest[i] = Ta;
             ta_sum += Ta;

@@ -3,9 +3,10 @@
 # 电生理参数
 Cm  = 1.0       # muF/cm^2
 S_v = 0.1       # 1/cm
-G_f = 1.17e-3   # mS/cm
-G_s = 3.90e-4
-G_n = 3.90e-4
+D_scale = 100
+G_f = D_scale * 1.17e-3   # mS/cm
+G_s = D_scale * 3.90e-4
+G_n = D_scale * 3.90e-4
 
 # 有限元空间
 S = FiniteElement("Lagrange", tetrahedron, 1)

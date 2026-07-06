@@ -331,7 +331,7 @@ GPBCellModel::Result GPBCellModel::f_heartfailure_1(
     
     // SR flux parameters
     const double Q10SRCaP = 2.6;
-    const double Vmax_SRCaP = 1.0 * 5.3114e-3;
+    const double Vmax_SRCaP = 5.3114e-3;
     const double Kmf = 0.246e-3;
     const double Kmr = 1.7;
     const double hillSRCaP = 1.787;

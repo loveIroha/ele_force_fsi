@@ -30,9 +30,14 @@
 #include <AlgebraSolver/StdVector.h>
 #include <unordered_map>
 #include <cstdio>
+#include <cmath>
+#include <algorithm>
 
 namespace dolfin {
 
+// 收缩期初始时间，同时也是舒张期结束时间 [s]。
+static constexpr double kSystoleStartTime = 0.5;
+static constexpr double t_period_con = 0.80;
 
 template<typename SolidSolverType, typename FluidSolverType, typename VectorType>
 class ElectroFluidStructureSolver 
@@ -140,7 +145,8 @@ public:
           _ibm_solver(std::make_shared<ImmersedBoundaryMethod<FluidSolverType, SolidSolverType>>(
               fluid_mesh, std::dynamic_pointer_cast<FluidSolverType>(fluid_solver), solid_mesh, std::dynamic_pointer_cast<SolidSolverType>(solid_solver))),
           _t(0.0), _dt(0.0),
-          _t_end_diastole(0.5),     // 舒张期结束时间 [s]
+          _t_end_diastole(kSystoleStartTime),     // 舒张期结束时间 [s]
+          _t_period(t_period_con),  
           _ep_enabled(true)
     {
         // 获取 dolfin mesh 用于插值
@@ -298,6 +304,15 @@ public:
     
     void set_t_end_diastole(double t) { _t_end_diastole = t; }
     double get_t_end_diastole() const { return _t_end_diastole; }
+
+    void set_t_period(double t)
+    {
+        _t_period = t;
+        if (_ep_solver) {
+            _ep_solver->set_stimulus_period(_t_period * 1000.0);
+        }
+    }
+    double get_t_period() const { return _t_period; }
     
     /** 启用/禁用电生理耦合（禁用时退化为原始 FSI + 查表 Ca_i） */
     void set_ep_enabled(bool enabled) { _ep_enabled = enabled; }
@@ -341,11 +356,12 @@ public:
                 std::to_string(_ibm_solver->_solid_displacement.size()) +
                 ", expected " + std::to_string(_solid_mesh->num_dofs()));
         }
-        
+
+        const bool ep_active = is_ep_active(t);
         // ═══════════════════════════════════════════════════════════
-        // Step 1: 电生理求解（多个 PDE 步）
+        // Step 1: 电生理/Land 求解（多个 EP/Land 子步）
         // ═══════════════════════════════════════════════════════════
-        if (_ep_enabled && t >= _t_end_diastole)
+        if (_ep_enabled && ep_active)
         {
             double t_ms = t * 1000.0;
             double dt_ep_ms = _ep_solver->get_tissue_manager()->get_dt_pde_ms();
@@ -353,32 +369,36 @@ public:
             int n_ep_steps = static_cast<int>(std::round(dt * 1000.0 / dt_ep_ms));
             if (n_ep_steps < 1) n_ep_steps = 1;
             
-            LOG_F(INFO, "电生理子步: %d 步 × %.4f ms", n_ep_steps, dt_ep_ms);
+            LOG_F(INFO, "电生理+Land子步: %d 步 × %.4f ms", n_ep_steps, dt_ep_ms);
             
             for (int ep_step = 0; ep_step < n_ep_steps; ++ep_step) {
                 double t_ep_ms_current = t_ms + ep_step * dt_ep_ms;
                 _ep_solver->solve_timestep(t_ep_ms_current);
             }
         }
+        else if (_ep_enabled)
+        {
+            LOG_F(INFO, "舒张期相位 local_t=%.6e s < t_end_diastole=%.6e s，跳过 EP/Land 演化。",
+                  cycle_time(t), _t_end_diastole);
+        }
         
         // ═══════════════════════════════════════════════════════════
         // Step 2: 主动收缩张力相关的横桥传递 (电 -> 力)
         // ═══════════════════════════════════════════════════════════
-        if (t >= _t_end_diastole)
+        if (_ep_enabled)
         {
-            if (_ep_enabled)
-            {
-                // EP (GPB+Land) 提供横桥状态 (XS, XW) -> 固体
-                auto XS_vec = _ep_solver->get_XS_field();
-                auto XW_vec = _ep_solver->get_XW_field();
-                if (XS_vec.size() != _solid_mesh->num_dofs() || XW_vec.size() != _solid_mesh->num_dofs()) {
-                    throw std::runtime_error(
-                        "solve_timestep: XS/XW size mismatch, XS=" + std::to_string(XS_vec.size()) +
-                        ", XW=" + std::to_string(XW_vec.size()) +
-                        ", expected " + std::to_string(_solid_mesh->num_dofs()));
-                }
-                _solid_solver->set_land_crossbridge_states(XS_vec, XW_vec);
+            // Land 提供横桥状态 (XS, XW) -> 固体；刺激前显式置零，保证 Ta=0。
+            auto XS_vec = ep_active ? _ep_solver->get_XS_field()
+                                    : std::vector<double>(_solid_mesh->num_dofs(), 0.0);
+            auto XW_vec = ep_active ? _ep_solver->get_XW_field()
+                                    : std::vector<double>(_solid_mesh->num_dofs(), 0.0);
+            if (XS_vec.size() != _solid_mesh->num_dofs() || XW_vec.size() != _solid_mesh->num_dofs()) {
+                throw std::runtime_error(
+                    "solve_timestep: XS/XW size mismatch, XS=" + std::to_string(XS_vec.size()) +
+                    ", XW=" + std::to_string(XW_vec.size()) +
+                    ", expected " + std::to_string(_solid_mesh->num_dofs()));
             }
+            _solid_solver->set_land_crossbridge_states(XS_vec, XW_vec);
         }
         
         // ═══════════════════════════════════════════════════════════
@@ -455,8 +475,12 @@ public:
      */
     void solve_solid_with_ep(double t, double dt)
     {
-        auto XS_vec = _ep_solver->get_XS_field();
-        auto XW_vec = _ep_solver->get_XW_field();
+        (void)dt;
+        const bool ep_active = is_ep_active(t);
+        auto XS_vec = ep_active ? _ep_solver->get_XS_field()
+                                : std::vector<double>(_solid_mesh->num_dofs(), 0.0);
+        auto XW_vec = ep_active ? _ep_solver->get_XW_field()
+                                : std::vector<double>(_solid_mesh->num_dofs(), 0.0);
         _solid_solver->set_land_crossbridge_states(XS_vec, XW_vec);
         // Tension is calculated implicitly in solid solver step if implemented
     }
@@ -513,7 +537,7 @@ public:
         
         // 输出张力（创建临时函数）
         auto T_func = std::make_shared<Function>(_ep_solver->get_function_space());
-        _ep_solver->set_land_active_tension_to_function(T_func);
+        set_output_active_tension(T_func);
         tension_file << *T_func;
     }
 
@@ -535,9 +559,16 @@ public:
             _solid_solver->file_xdmf_checkpoint->write_checkpoint(
                 *vm_func, "vm", _t, XDMFFile::Encoding::HDF5, true);
 
+            auto ca_i_func = std::make_shared<Function>(_ep_solver->get_function_space());
+            ca_i_func->rename("ca_i", "");
+            _ep_solver->set_Ca_i_to_function(ca_i_func);
+            _solid_solver->file_xdmf->write(*ca_i_func, _t, XDMFFile::Encoding::HDF5);
+            _solid_solver->file_xdmf_checkpoint->write_checkpoint(
+                *ca_i_func, "ca_i", _t, XDMFFile::Encoding::HDF5, true);
+
             auto ta_func = std::make_shared<Function>(_ep_solver->get_function_space());
             ta_func->rename("active_tension", "");
-            _ep_solver->set_land_active_tension_to_function(ta_func);
+            set_output_active_tension(ta_func);
             _solid_solver->file_xdmf->write(*ta_func, _t, XDMFFile::Encoding::HDF5);
             _solid_solver->file_xdmf_checkpoint->write_checkpoint(
                 *ta_func, "active_tension", _t, XDMFFile::Encoding::HDF5, true);
@@ -588,6 +619,39 @@ private:
     
     // 电生理开关
     bool _ep_enabled;
+    bool is_ep_active(double t) const
+    {
+        if (!_ep_enabled) return false;
+        return cycle_time(t) >= _t_end_diastole;
+    }
+
+    double cycle_time(double t) const
+    {
+        if (_t_period <= 0.0) return t;
+        double local_t = std::fmod(t, _t_period);
+        if (local_t < 0.0) local_t += _t_period;
+        return local_t;
+    }
+
+    void set_output_active_tension(std::shared_ptr<Function> Ta_func) const
+    {
+        if (is_ep_active(_t)) {
+            _ep_solver->set_land_active_tension_to_function(Ta_func);
+        } else {
+            zero_function(Ta_func);
+        }
+    }
+
+    static void zero_function(std::shared_ptr<Function> func)
+    {
+        std::vector<double> values;
+        func->vector()->get_local(values);
+        std::fill(values.begin(), values.end(), 0.0);
+        func->vector()->set_local(values);
+        func->vector()->apply("insert");
+    }
+
+    double _t_period;         // 心动周期 [s]
 
 };
 

@@ -31,7 +31,7 @@ b_fs = 1.3
 
 # T_scale = 3.0
 
-Tref_land  = 8.4e5    # dyn/cm²（= 84 kPa）
+Tref_land  = 1.2e6    # dyn/cm²（= 120 kPa）
 rs_land    = 0.25     # 强结合横桥平衡比例
 Beta0_land = 2.3      # Frank-Starling 长度依赖系数
 As_land    = 10.0     # Zetas 驱动增益（= Aw_land）
@@ -83,7 +83,7 @@ def first_PK_stress(X):                           # X is the position of current
 
     # 收缩力
     Ta = h_lambda * (Tref_land / rs_land) * (XS * (Zetas + 1.0) + XW * Zetaw)
-    P += Ta*outer(f_fiber,f0)
+    P += Ta*(  1+4.9*(sqrt(I_4f)-1.0)  )*F*outer(f0,f0)*F*outer(f0,f0)
     return P
 
 pressure = Coefficient(real)

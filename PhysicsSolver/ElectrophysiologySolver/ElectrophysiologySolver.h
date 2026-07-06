@@ -7,9 +7,10 @@
 #include "GPBTissueManager_Land.h"
 #include "Monodomain.h"  // FFC 生成
 #include <unordered_set>
+#include <cmath>
 
 namespace dolfin {
-
+static constexpr double t_period_ms = 800.0;
 /**
  * 纤维方向 Expression 类
  */
@@ -45,7 +46,7 @@ public:
                       std::shared_ptr<const MeshFunction<std::size_t>> facet_markers,
                       std::size_t endo_marker)
         : Expression(), amp(amplitude), t_start(t_start_ms), t_end(t_end_ms),
-          current_time(0.0), mesh(mesh), facet_markers(facet_markers),
+          current_time(0.0), period(t_period_ms), mesh(mesh), facet_markers(facet_markers),
           endo_marker(endo_marker), use_boundary_marker(true)
     {
         build_cell_to_boundary_map();
@@ -53,7 +54,7 @@ public:
 
     StimulusCurrentEP(double amplitude, double t_start_ms, double t_end_ms)
         : Expression(), amp(amplitude), t_start(t_start_ms), t_end(t_end_ms), 
-          current_time(0.0), mesh(nullptr), facet_markers(nullptr),
+          current_time(0.0), period(t_period_ms), mesh(nullptr), facet_markers(nullptr),
           endo_marker(0), use_boundary_marker(false) {}
     
     void eval(Array<double>& values, const Array<double>& x) const override
@@ -65,7 +66,7 @@ public:
     void eval(Array<double>& values, const Array<double>& x,
               const ufc::cell& cell) const override
     {
-        if (current_time < t_start || current_time > t_end) {
+        if (!is_in_stimulus_window()) {
             values[0] = 0.0;
             return;
         }
@@ -80,8 +81,19 @@ public:
     }
     
     void update_time(double t_ms) { current_time = t_ms; }
+    void set_period(double period_ms) { period = period_ms; }
 
 private:
+    bool is_in_stimulus_window() const
+    {
+        double t_eval = current_time;
+        if (period > 0.0) {
+            t_eval = std::fmod(current_time, period);
+            if (t_eval < 0.0) t_eval += period;
+        }
+        return t_eval >= t_start && t_eval <= t_end;
+    }
+
     void build_cell_to_boundary_map()
     {
         endocardial_cells.clear();
@@ -124,6 +136,7 @@ private:
     double t_start;
     double t_end;
     double current_time;
+    double period;
     std::shared_ptr<const Mesh> mesh;
     std::shared_ptr<const MeshFunction<std::size_t>> facet_markers;
     std::size_t endo_marker;
@@ -158,7 +171,7 @@ public:
         double dt_ode_ms)
         : _mesh(mesh), _boundaries(boundaries),
           dt_pde_milliseconds(dt_pde_ms), dt_ode_milliseconds(dt_ode_ms),
-          _endo_marker(2)
+          _endo_marker(2), _stimulus_period_ms(t_period_ms)
     {
         LOG_F(INFO, "初始化电生理求解器 (Monodomain + GPB + Land)");
 
@@ -192,10 +205,11 @@ public:
 
         if (_boundaries) {
             stim_expr = std::make_shared<StimulusCurrentEP>(
-                12.0, 500, 510, _mesh, _boundaries, _endo_marker); // 默认：内膜(marker=1)刺激
+                12.0, 500, 502, _mesh, _boundaries, _endo_marker); // 默认：内膜(marker=2)刺激
         } else {
-            stim_expr = std::make_shared<StimulusCurrentEP>(12.0, 500, 510); // 无边界标记时回退全域刺激
+            stim_expr = std::make_shared<StimulusCurrentEP>(12.0, 500, 502); // 无边界标记时回退全域刺激
         }
+        stim_expr->set_period(_stimulus_period_ms);
         I_stim->interpolate(*stim_expr);
 
         _initialized = false;
@@ -274,12 +288,22 @@ public:
         if (_boundaries) {
             stim_expr = std::make_shared<StimulusCurrentEP>(
                 amplitude, t_start_ms, t_end_ms, _mesh, _boundaries, _endo_marker);
+            stim_expr->set_period(_stimulus_period_ms);
             LOG_F(INFO, "设置内膜刺激(marker=%zu): %.2f μA/cm², [%.2f, %.2f] ms",
                   _endo_marker, amplitude, t_start_ms, t_end_ms);
         } else {
             stim_expr = std::make_shared<StimulusCurrentEP>(amplitude, t_start_ms, t_end_ms);
+            stim_expr->set_period(_stimulus_period_ms);
             LOG_F(INFO, "设置全域刺激(无边界标记): %.2f μA/cm², [%.2f, %.2f] ms",
                   amplitude, t_start_ms, t_end_ms);
+        }
+    }
+
+    void set_stimulus_period(double period_ms)
+    {
+        _stimulus_period_ms = period_ms;
+        if (stim_expr) {
+            stim_expr->set_period(_stimulus_period_ms);
         }
     }
 
@@ -293,10 +317,12 @@ public:
         if (_boundaries) {
             stim_expr = std::make_shared<StimulusCurrentEP>(
                 amplitude, t_start_ms, t_end_ms, _mesh, _boundaries, _endo_marker);
+            stim_expr->set_period(_stimulus_period_ms);
             LOG_F(INFO, "设置 marker 刺激(marker=%zu): %.2f μA/cm², [%.2f, %.2f] ms",
                   _endo_marker, amplitude, t_start_ms, t_end_ms);
         } else {
             stim_expr = std::make_shared<StimulusCurrentEP>(amplitude, t_start_ms, t_end_ms);
+            stim_expr->set_period(_stimulus_period_ms);
             LOG_F(WARNING, "set_stimulus_on_marker: boundary markers unavailable, fallback to global stimulus.");
         }
     }
@@ -361,6 +387,21 @@ public:
         
         // Step 4: 更新 Vm_old
         *Vm_old = *Vm;
+    }
+
+    /**
+     * 仅推进 Land 横桥模型，保持 EP 的 GPB/PDE 状态不变。
+     *
+     * 用于刺激前预平衡：Vm、I_stim 和 cell_states 保持初值，Land 在静息 Ca_i
+     * 及最新力学反馈下持续更新。
+     */
+    void advance_land_timestep(double time_ms)
+    {
+        if (!_initialized) {
+            throw std::runtime_error("ElectrophysiologySolver not initialized! Call setup_forms() first.");
+        }
+
+        tissue_manager->advance_land_subcycling(time_ms);
     }
 
     // ====== Solid 侧耦合接口 ======
@@ -457,6 +498,7 @@ private:
 
     double dt_pde_milliseconds;
     double dt_ode_milliseconds;
+    double _stimulus_period_ms;
     std::shared_ptr<Constant> dt_constant;
 
     std::shared_ptr<GPBTissueManager> tissue_manager;
